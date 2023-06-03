@@ -9,11 +9,13 @@
 
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 {
-    if (size <= 0)
+    if (size < PKT_STATIC_LEN)
         return NULL;
     dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
     if (!pkt)
         return NULL;
+
+    pkt->pkt_size = size;
 
     pkt->op = buf[0];
     pkt->h_type = buf[1];
@@ -28,16 +30,17 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     pkt->si_addr = buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
     pkt->gi_addr = buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
 
-    buf += 28;
-    memcpy(pkt->ch_addr, buf, 16);
-    buf += 16;
-    memcpy(pkt->s_name, buf, 64);
-    buf += 64;
-    memcpy(pkt->file, buf, 128);
-    buf += 128;
+    const int NUM_DESERIALIZED = 28;
 
-    uint8_t *opts = malloc(size - 236);
-    memcpy(opts, buf, size - 236);
+    buf += NUM_DESERIALIZED;
+    memcpy(pkt->ch_addr, buf, PKT_CHADDR_LEN);
+    buf += PKT_CHADDR_LEN;
+    memcpy(pkt->s_name, buf, PKT_SNAME_LEN);
+    buf += PKT_SNAME_LEN;
+    memcpy(pkt->file, buf, PKT_FILE_LEN);
+    buf += PKT_FILE_LEN;
+
+    memcpy(pkt->options, buf, size - PKT_STATIC_LEN);
 
     return pkt;
 }
@@ -83,9 +86,14 @@ void print_dhcp_pkt(dhcp_pkt *pkt)
     {
         printf("chaddr=unknown\n");
     }
-    
+
     printf("sname=%s\n",
-        (pkt->s_name[0] != '\0') ? (char *)pkt->s_name : "none");
+           (pkt->s_name[0] != '\0') ? (char *)pkt->s_name : "none");
     printf("file=%s\n\n",
-        (pkt->file[0] != '\0') ? (char *)pkt->file : "none");
+           (pkt->file[0] != '\0') ? (char *)pkt->file : "none");
+}
+
+bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
+{
+    return pkt->h_type == HTYPE_ETHERNET;
 }
