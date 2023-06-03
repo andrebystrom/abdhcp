@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
+#include <getopt.h>
 
 // net includes.
 #include <sys/types.h>
@@ -20,8 +21,16 @@ typedef struct
 {
     int srv_socket;
     bool debug;
+
+    // CLI supplied options.
+    struct in_addr start_address;
+    struct in_addr end_address;
+    struct in_addr *gateway;
+    struct in_addr *dns_server;
+    uint32_t mask;
 } context;
 
+void parse_args(int argc, char **argv, context *ctx);
 void create_srv_socket(context *ctx);
 
 int main(int argc, char **argv)
@@ -44,6 +53,34 @@ int main(int argc, char **argv)
     }
 
     return 0;
+}
+
+void parse_args(int argc, char **argv, context *ctx)
+{
+    int opt;
+    while ((opt = getopt(argc, argv, "") != -1))
+    {
+        switch (opt)
+        {
+            case 'n':
+                // Mandatory
+                // Network option, expected format is start_address:end_address
+                break;
+            case 'm':
+                // Mandatory
+                // Mask option, expected format is an ipv4 address in dotted
+                // decimal
+                break;
+            case 'g':
+                // Optional ipv4 gateway in dotted decimal form.
+                break;
+            case 'd':
+                // Optional single ipv4 DNS server in dotted decimal form.
+                break;
+            default: 
+                break;
+        }
+    }
 }
 
 void create_srv_socket(context *ctx)
@@ -81,11 +118,11 @@ void create_srv_socket(context *ctx)
 
     int broadcast_on = 1;
     if ((setsockopt(
-        ctx->srv_socket,
-        SOL_SOCKET,
-        SO_BROADCAST,
-        &broadcast_on,
-        sizeof broadcast_on)) < 0)
+            ctx->srv_socket,
+            SOL_SOCKET,
+            SO_BROADCAST,
+            &broadcast_on,
+            sizeof broadcast_on)) < 0)
     {
         perror("set UDP server socket to broadcast");
         exit(EXIT_FAILURE);
