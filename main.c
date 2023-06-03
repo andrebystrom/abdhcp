@@ -25,18 +25,21 @@ typedef struct
     // CLI supplied options.
     struct in_addr start_address;
     struct in_addr end_address;
+    struct in_addr mask;
     struct in_addr *gateway;
     struct in_addr *dns_server;
-    uint32_t mask;
+
 } context;
 
 void parse_args(int argc, char **argv, context *ctx);
+void print_usage_and_exit(FILE *f);
+void free_context(context *ctx);
 void create_srv_socket(context *ctx);
 
 int main(int argc, char **argv)
 {
     context ctx;
-    ctx.debug = argc > 1 && strcmp(argv[1], "-v") == 0;
+    parse_args(argc, argv, &ctx);
     create_srv_socket(&ctx);
 
     int buf_len = 2048;
@@ -58,29 +61,89 @@ int main(int argc, char **argv)
 void parse_args(int argc, char **argv, context *ctx)
 {
     int opt;
-    while ((opt = getopt(argc, argv, "") != -1))
+
+    char *address;
+    bool has_network = false, has_mask = false;
+    struct in_addr *addr;
+
+    ctx->debug = false;
+    ctx->gateway = NULL;
+    ctx->dns_server = NULL;
+
+    while ((opt = getopt(argc, argv, "n:m:g:d:hv")) != -1)
     {
         switch (opt)
         {
-            case 'n':
-                // Mandatory
-                // Network option, expected format is start_address:end_address
-                break;
-            case 'm':
-                // Mandatory
-                // Mask option, expected format is an ipv4 address in dotted
-                // decimal
-                break;
-            case 'g':
-                // Optional ipv4 gateway in dotted decimal form.
-                break;
-            case 'd':
-                // Optional single ipv4 DNS server in dotted decimal form.
-                break;
-            default: 
-                break;
+        case 'n':
+            // Mandatory
+            // Network option, expected format is start_address:end_address
+            for (int i = 0; i < 2; i++)
+            {
+                address = strtok((i == 0) ? optarg : NULL, ":");
+                if (address == NULL)
+                    print_usage_and_exit(stderr);
+
+                addr = (i == 0) ? &(ctx->start_address) : &(ctx->end_address);
+                if (inet_aton(address, addr) < 1)
+                    print_usage_and_exit(stderr);
+            }
+            has_network = true;
+            break;
+        case 'm':
+            // Mandatory
+            // Mask option, expected format is an ipv4 address in dotted
+            // decimal
+            if (inet_aton(optarg, &(ctx->mask)) < 1)
+                print_usage_and_exit(stderr);
+            has_mask = true;
+            break;
+        case 'g':
+            // Optional ipv4 gateway in dotted decimal form.
+            if ((ctx->gateway = malloc(sizeof(struct in_addr))) == NULL)
+            {
+                fprintf(stderr, "failed to allocate gateway storage\n");
+                exit(EXIT_FAILURE);
+            }
+            if ((inet_aton(optarg, ctx->gateway)) < 1)
+                print_usage_and_exit(stderr);
+            break;
+        case 'd':
+            // Optional single ipv4 DNS server in dotted decimal form.
+            if ((ctx->dns_server = malloc(sizeof(struct in_addr))) == NULL)
+            {
+                fprintf(stderr, "failed to allocate dns server storage\n");
+                exit(EXIT_FAILURE);
+            }
+            if ((inet_aton(optarg, ctx->dns_server)) < 1)
+                print_usage_and_exit(stderr);
+            break;
+        case 'v':
+            ctx->debug = true;
+            break;
+        case 'h':
+        default:
+            print_usage_and_exit(stderr);
+            break;
         }
     }
+
+    if(!has_network || !has_mask)
+        print_usage_and_exit(stderr);
+}
+
+void print_usage_and_exit(FILE *f)
+{
+    fprintf(f, "Usage: abdhcp -n <start address>:<end address>");
+    fprintf(f, " -m <subnet mask> [-g <gateway] [-d <dns server>]\n");
+    exit(EXIT_FAILURE);
+}
+
+void free_context(context *ctx)
+{
+    if (ctx->gateway != NULL)
+        free(ctx->gateway);
+    if (ctx->dns_server != NULL)
+        free(ctx->dns_server);
 }
 
 void create_srv_socket(context *ctx)
