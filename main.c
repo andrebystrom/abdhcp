@@ -64,14 +64,30 @@ void create_srv_socket(context *ctx)
         exit(EXIT_FAILURE);
     }
 
-    ctx->srv_socket = socket(
-        info->ai_family,
-        info->ai_socktype,
-        info->ai_protocol);
+    if ((ctx->srv_socket = socket(
+             info->ai_family,
+             info->ai_socktype,
+             info->ai_protocol)) < 0)
+    {
+        perror("create server UDP socket");
+        exit(EXIT_FAILURE);
+    }
 
     if ((bind(ctx->srv_socket, info->ai_addr, info->ai_addrlen)) < 0)
     {
         perror("bind udp socket");
+        exit(EXIT_FAILURE);
+    }
+
+    int broadcast_on = 1;
+    if ((setsockopt(
+        ctx->srv_socket,
+        SOL_SOCKET,
+        SO_BROADCAST,
+        &broadcast_on,
+        sizeof broadcast_on)) < 0)
+    {
+        perror("set UDP server socket to broadcast");
         exit(EXIT_FAILURE);
     }
 
