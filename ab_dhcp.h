@@ -8,6 +8,7 @@
 #define HTYPE_ETHERNET 1
 
 #define ETHERNET_MTU 1500
+#define ETHERNET_LEN 6
 
 #define PKT_CHADDR_LEN 16
 #define PKT_SNAME_LEN 64

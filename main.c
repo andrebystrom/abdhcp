@@ -17,6 +17,21 @@
 
 #include "ab_dhcp.h"
 
+typedef enum
+{
+    OFFERED,
+    COMMITED
+} client_state;
+
+typedef struct
+{
+    uint32_t transaction_id;
+    uint8_t ethernet_address[ETHERNET_LEN];
+    bool address_offered;
+    struct in_addr offered_address;
+    client_state state;
+} client;
+
 typedef struct
 {
     int srv_socket;
@@ -29,31 +44,21 @@ typedef struct
     struct in_addr *gateway;
     struct in_addr *dns_server;
 
+    client **clients;
 } context;
 
 void parse_args(int argc, char **argv, context *ctx);
 void print_usage_and_exit(FILE *f);
 void free_context(context *ctx);
 void create_srv_socket(context *ctx);
+void run_server(context *ctx);
 
 int main(int argc, char **argv)
 {
     context ctx;
     parse_args(argc, argv, &ctx);
     create_srv_socket(&ctx);
-
-    int buf_len = 2048;
-    uint8_t buf[buf_len + 1];
-    buf[buf_len] = '\0';
-
-    while (1)
-    {
-        int nrec = recvfrom(ctx.srv_socket, buf, buf_len, 0, NULL, NULL);
-        dhcp_pkt *pkt = deserialize_dhcp_pkt(buf, buf_len);
-        fprintf(stderr, "NREC = %d\n", nrec);
-        print_dhcp_pkt(pkt);
-        free_dhcp_pkt(pkt);
-    }
+    run_server(&ctx);
 
     return 0;
 }
@@ -69,6 +74,7 @@ void parse_args(int argc, char **argv, context *ctx)
     ctx->debug = false;
     ctx->gateway = NULL;
     ctx->dns_server = NULL;
+    ctx->clients = NULL;
 
     while ((opt = getopt(argc, argv, "n:m:g:d:hv")) != -1)
     {
@@ -127,7 +133,7 @@ void parse_args(int argc, char **argv, context *ctx)
         }
     }
 
-    if(!has_network || !has_mask)
+    if (!has_network || !has_mask)
         print_usage_and_exit(stderr);
 }
 
@@ -192,4 +198,45 @@ void create_srv_socket(context *ctx)
     }
 
     freeaddrinfo(info);
+}
+
+void run_server(context *ctx)
+{
+    const int BUF_SIZE = 2048;
+    uint8_t buf[BUF_SIZE];
+    int num_read;
+    dhcp_pkt *pkt;
+
+    while (1)
+    {
+        if ((num_read = recvfrom(
+                 ctx->srv_socket,
+                 buf,
+                 BUF_SIZE,
+                 0,
+                 NULL,
+                 NULL)) < 0)
+        {
+            perror("reading server socket");
+            exit(EXIT_FAILURE);
+        }
+
+        if ((pkt = deserialize_dhcp_pkt(buf, num_read)) == NULL)
+        {
+            fprintf(stderr, "failed to deserialize packet\n");
+            continue;
+        }
+        if (!is_ethernet_dhcp_pkt(pkt))
+        {
+            fprintf(
+                stderr,
+                "got DHCP packet that was not ethernet (HTYPE=%u)\n",
+                pkt->h_type);
+            free_dhcp_pkt(pkt);
+            continue;
+        }
+
+        print_dhcp_pkt(pkt);
+        free_dhcp_pkt(pkt);
+    }
 }
