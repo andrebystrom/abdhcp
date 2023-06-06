@@ -25,9 +25,7 @@ typedef enum
 
 typedef struct
 {
-    uint32_t transaction_id;
     uint8_t ethernet_address[ETHERNET_LEN];
-    bool address_offered;
     struct in_addr offered_address;
     client_state state;
 } client;
@@ -56,6 +54,9 @@ void create_srv_socket(context *ctx);
 void run_server(context *ctx);
 ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
 void handle_discover(context *ctx, dhcp_pkt *pkt);
+int8_t find_usable_client_addr(context *ctx, struct in_addr *addr);
+int8_t insert_client(context *ctx, client *client);
+int client_cmp(const void *c1, const void *c2);
 
 int main(int argc, char **argv)
 {
@@ -153,10 +154,7 @@ bool validate_network(context *ctx)
 
     // Check that the addresses we are using are sequentual and not network or
     // broadcast addresses.
-    return raw_start < raw_end 
-        && (raw_start > net_address)
-        && (raw_start < broadcast_address)
-        && (raw_end < broadcast_address);
+    return raw_start < raw_end && (raw_start > net_address) && (raw_start < broadcast_address) && (raw_end < broadcast_address);
 }
 
 void print_usage_and_exit(FILE *f)
@@ -298,18 +296,93 @@ ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE)
 
 void handle_discover(context *ctx, dhcp_pkt *pkt)
 {
+    struct in_addr addr;
+    client *client;
+    int ret;
+
     if (ctx->debug)
         printf("got dhcp discover pkt\n");
+
+    if ((ret = find_usable_client_addr(ctx, &addr)) < 0)
+    {
+        fprintf(stderr, "failed to find usable address for discover\n");
+        return;
+    }
+
+    if ((client = malloc(sizeof(client))) == NULL)
+    {
+        fprintf(stderr, "failed to allocate client memory\n");
+        return;
+    }
+
+    client->state = OFFERED;
+    client->offered_address.s_addr = addr.s_addr;
+    memcpy(client->ethernet_address, pkt->ch_addr, ETHERNET_LEN);
+
+    if (insert_client(ctx, client) < 0)
+    {
+        free(client);
+        return;
+    }
+
+    // TODO: Send response
 }
 
-struct in_addr find_usable_client_addr(context *ctx)
+int8_t find_usable_client_addr(context *ctx, struct in_addr *addr)
 {
-    struct in_addr addr = {.s_addr = 0};
-    return addr;
+    uint32_t base_addr = ntohl(ctx->start_address.s_addr);
+    uint32_t mask = ntohl(ctx->mask.s_addr);
+    uint32_t base_addr_host = base_addr & ~mask;
+    uint32_t ret_host = base_addr_host;
+    uint32_t ret_address;
+
+    for (int i = 0; i < ctx->num_clients; i++)
+    {
+        uint32_t offered_addr = ntohl(ctx->clients[i]->offered_address.s_addr);
+        uint32_t offered_host = offered_addr & ~mask;
+        if (ret_host < offered_host)
+            break;
+
+        ret_host++;
+    }
+
+    ret_address = ret_host | (base_addr & mask);
+
+    addr->s_addr = htonl(ret_address);
+    if (ret_address > ntohl(ctx->end_address.s_addr))
+    {
+        return -1;
+    }
+
+    addr->s_addr = htonl(ret_address);
+    return 0;
 }
 
-int8_t insert_client(context *ctx, client *client)
+int8_t insert_client(context *ctx, client *c)
 {
-    // TODO: insert and qsort.
-    return -1;
+    client **tmp = reallocarray(
+        ctx->clients,
+        ctx->num_clients + 1,
+        sizeof(client *));
+    if (tmp == NULL)
+    {
+        fprintf(stderr, "failed to re-allocate clients\n");
+        return -1;
+    }
+
+    ctx->clients = tmp;
+    ctx->clients[ctx->num_clients++] = c;
+    qsort(ctx->clients, ctx->num_clients, sizeof(client *), client_cmp);
+    
+    return 0;
+}
+
+int client_cmp(const void *c1, const void *c2)
+{
+    client **cl1 = (client **)c1;
+    client **cl2 = (client **)c2;
+    long addr1 = ntohl((*cl1)->offered_address.s_addr);
+    long addr2 = ntohl((*cl2)->offered_address.s_addr);
+
+    return (int)addr1 - addr2;
 }
