@@ -7,6 +7,11 @@
 
 #include "ab_dhcp.h"
 
+static int get_option_length(dhcp_pkt *pkt)
+{
+    return pkt->pkt_size - PKT_STATIC_LEN;
+}
+
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 {
     if (size < PKT_STATIC_LEN)
@@ -96,4 +101,45 @@ void print_dhcp_pkt(dhcp_pkt *pkt)
 bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
 {
     return pkt->h_type == HTYPE_ETHERNET;
+}
+
+uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
+{
+    return 0;
+}
+
+uint8_t find_dhcp_option(
+    dhcp_pkt *pkt,
+    uint8_t option_code,
+    uint8_t *buf,
+    uint8_t *size)
+{
+    const uint8_t MAGIC_COOKIE[] = {99, 130, 83, 99};
+    if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
+        return OPT_SEARCH_ERROR;
+    if (memcmp(pkt->options, MAGIC_COOKIE, sizeof MAGIC_COOKIE) != 0)
+        return OPT_SEARCH_ERROR;
+
+    int index = sizeof MAGIC_COOKIE;
+    // Continue while we have an option code and option length field.
+    while (index < get_option_length(pkt) + 1)
+    {
+        int opt_len = pkt->options[index + 1];
+        if (pkt->options[index] == option_code)
+        {
+            if (opt_len <= 0 || index + 1 + opt_len >= get_option_length(pkt))
+                return OPT_SEARCH_ERROR;
+            memcpy(buf, pkt->options + index + 2, opt_len);
+            *size = opt_len;
+            return OPT_SEARCH_SUCCESS;
+        }
+        else
+        {
+            if(index + 1 + opt_len >= get_option_length(pkt))
+                return OPT_SEARCH_ERROR;
+            index += 1 + opt_len;
+        }
+    }
+
+    return OPT_SEARCH_ERROR;
 }

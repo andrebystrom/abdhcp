@@ -52,6 +52,7 @@ void print_usage_and_exit(FILE *f);
 void free_context(context *ctx);
 void create_srv_socket(context *ctx);
 void run_server(context *ctx);
+ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
 
 int main(int argc, char **argv)
 {
@@ -204,23 +205,12 @@ void run_server(context *ctx)
 {
     const int BUF_SIZE = 2048;
     uint8_t buf[BUF_SIZE];
-    int num_read;
+    ssize_t num_read;
     dhcp_pkt *pkt;
 
     while (1)
     {
-        if ((num_read = recvfrom(
-                 ctx->srv_socket,
-                 buf,
-                 BUF_SIZE,
-                 0,
-                 NULL,
-                 NULL)) < 0)
-        {
-            perror("reading server socket");
-            exit(EXIT_FAILURE);
-        }
-
+        num_read = read_msg_or_die(ctx, buf, BUF_SIZE);
         if ((pkt = deserialize_dhcp_pkt(buf, num_read)) == NULL)
         {
             fprintf(stderr, "failed to deserialize packet\n");
@@ -236,7 +226,33 @@ void run_server(context *ctx)
             continue;
         }
 
+        switch (get_dhcp_message_type(pkt))
+        {
+            case PKT_TYPE_DISCOVER:
+                break;
+            default:
+                break;
+        }
+
         print_dhcp_pkt(pkt);
         free_dhcp_pkt(pkt);
     }
+}
+
+ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE)
+{
+    ssize_t num_read;
+    if ((num_read = recvfrom(
+             ctx->srv_socket,
+             buf,
+             BUF_SIZE,
+             0,
+             NULL,
+             NULL)) < 0)
+    {
+        perror("reading server socket");
+        exit(EXIT_FAILURE);
+    }
+
+    return num_read;
 }
