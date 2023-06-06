@@ -29,6 +29,10 @@
 #define OPT_SEARCH_ERROR   0
 #define OPT_SEARCH_SUCCESS 1
 
+#define OPT_PADDING      0
+#define OPT_END          255
+#define OPT_MESSAGE_TYPE 53
+
 typedef struct
 {
     uint8_t op, h_type, h_len, hops;

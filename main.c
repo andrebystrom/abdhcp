@@ -45,14 +45,17 @@ typedef struct
     struct in_addr *dns_server;
 
     client **clients;
+    int num_clients;
 } context;
 
 void parse_args(int argc, char **argv, context *ctx);
+bool validate_network(context *ctx);
 void print_usage_and_exit(FILE *f);
 void free_context(context *ctx);
 void create_srv_socket(context *ctx);
 void run_server(context *ctx);
 ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
+void handle_discover(context *ctx, dhcp_pkt *pkt);
 
 int main(int argc, char **argv)
 {
@@ -76,6 +79,7 @@ void parse_args(int argc, char **argv, context *ctx)
     ctx->gateway = NULL;
     ctx->dns_server = NULL;
     ctx->clients = NULL;
+    ctx->num_clients = 0;
 
     while ((opt = getopt(argc, argv, "n:m:g:d:hv")) != -1)
     {
@@ -134,8 +138,25 @@ void parse_args(int argc, char **argv, context *ctx)
         }
     }
 
-    if (!has_network || !has_mask)
+    if (!has_network || !has_mask || !validate_network(ctx))
         print_usage_and_exit(stderr);
+}
+
+bool validate_network(context *ctx)
+{
+    uint32_t raw_start = ntohl(ctx->start_address.s_addr);
+    uint32_t raw_end = ntohl(ctx->end_address.s_addr);
+    uint32_t raw_mask = ntohl(ctx->mask.s_addr);
+
+    uint32_t net_address = raw_start & raw_mask;
+    uint32_t broadcast_address = net_address | ~raw_mask;
+
+    // Check that the addresses we are using are sequentual and not network or
+    // broadcast addresses.
+    return raw_start < raw_end 
+        && (raw_start > net_address)
+        && (raw_start < broadcast_address)
+        && (raw_end < broadcast_address);
 }
 
 void print_usage_and_exit(FILE *f)
@@ -226,15 +247,33 @@ void run_server(context *ctx)
             continue;
         }
 
+        if (ctx->debug)
+            print_dhcp_pkt(pkt);
+
         switch (get_dhcp_message_type(pkt))
         {
-            case PKT_TYPE_DISCOVER:
-                break;
-            default:
-                break;
+        case PKT_TYPE_DISCOVER:
+            handle_discover(ctx, pkt);
+            break;
+        case PKT_TYPE_OFFER:
+            break;
+        case PKT_TYPE_REQUEST:
+            break;
+        case PKT_TYPE_DECLINE:
+            break;
+        case PKT_TYPE_ACK:
+            break;
+        case PKT_TYPE_NAK:
+            break;
+        case PKT_TYPE_RELEASE:
+            break;
+        case PKT_TYPE_INFORM:
+            break;
+        default:
+            fprintf(stderr, "Got invalid DHCP message type\n");
+            break;
         }
 
-        print_dhcp_pkt(pkt);
         free_dhcp_pkt(pkt);
     }
 }
@@ -255,4 +294,22 @@ ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE)
     }
 
     return num_read;
+}
+
+void handle_discover(context *ctx, dhcp_pkt *pkt)
+{
+    if (ctx->debug)
+        printf("got dhcp discover pkt\n");
+}
+
+struct in_addr find_usable_client_addr(context *ctx)
+{
+    struct in_addr addr = {.s_addr = 0};
+    return addr;
+}
+
+int8_t insert_client(context *ctx, client *client)
+{
+    // TODO: insert and qsort.
+    return -1;
 }

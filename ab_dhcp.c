@@ -105,7 +105,13 @@ bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
 
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
 {
-    return 0;
+    uint8_t buf, ret, buf_size;
+    ret = find_dhcp_option(pkt, OPT_MESSAGE_TYPE, &buf, &buf_size);
+    if (ret != OPT_SEARCH_SUCCESS || buf_size != 1 || buf < 1 || buf > 8)
+    {
+        return PKT_TYPE_INVALID;
+    }
+    return buf;
 }
 
 uint8_t find_dhcp_option(
@@ -122,8 +128,14 @@ uint8_t find_dhcp_option(
 
     int index = sizeof MAGIC_COOKIE;
     // Continue while we have an option code and option length field.
-    while (index < get_option_length(pkt) + 1)
+    while (index < get_option_length(pkt) + 1 && pkt->options[index] != OPT_END)
     {
+        if (pkt->options[index] == OPT_PADDING)
+        {
+            index++;
+            continue;
+        }
+
         int opt_len = pkt->options[index + 1];
         if (pkt->options[index] == option_code)
         {
@@ -133,9 +145,11 @@ uint8_t find_dhcp_option(
             *size = opt_len;
             return OPT_SEARCH_SUCCESS;
         }
+        // TODO: Check for option overload option and search through
+        // sname and file later if requested.
         else
         {
-            if(index + 1 + opt_len >= get_option_length(pkt))
+            if (index + 1 + opt_len >= get_option_length(pkt))
                 return OPT_SEARCH_ERROR;
             index += 1 + opt_len;
         }
