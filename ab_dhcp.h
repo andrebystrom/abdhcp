@@ -1,5 +1,5 @@
-#ifndef AB_DHCP
-#define AB_DHCP
+#ifndef AB_DHCP_H
+#define AB_DHCP_H
 
 #include <stdbool.h>
 #include <stdint.h>

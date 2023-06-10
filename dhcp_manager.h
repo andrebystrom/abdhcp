@@ -19,6 +19,7 @@
 
 int8_t find_usable_client_addr(context *ctx, struct in_addr *addr);
 int8_t insert_client(context *ctx, client *client);
+int8_t remove_client_by_client(context *ctx, client *client, bool free_it);
 int8_t remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it);
 int client_cmp(const void *c1, const void *c2);
 

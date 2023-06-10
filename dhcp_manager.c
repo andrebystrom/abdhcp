@@ -64,6 +64,14 @@ int8_t insert_client(context *ctx, client *c)
     return 0;
 }
 
+int8_t remove_client_by_client(context *ctx, client *client, bool free_it)
+{
+    if (client->identifier != NULL)
+        return remove_client(ctx, client->identifier, client->id_len, free_it);
+    
+    return remove_client(ctx, client->ethernet_address, ETHERNET_LEN, free_it);
+}
+
 int8_t remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
 {
     for (int i = 0; i < ctx->num_clients; i++)

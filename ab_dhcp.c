@@ -7,6 +7,8 @@
 
 #include "ab_dhcp.h"
 
+static const uint8_t MAGIC_COOKIE[] = {99, 130, 83, 99};
+
 static int get_option_length(dhcp_pkt *pkt)
 {
     return pkt->pkt_size - PKT_STATIC_LEN;
@@ -15,8 +17,34 @@ static int get_option_length(dhcp_pkt *pkt)
 dhcp_pkt *make_pkt(void)
 {
     dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
-    if(pkt == NULL) return NULL;
-    pkt->opt_write_offset_ = 0;
+    if (pkt == NULL)
+        return NULL;
+    memcpy(pkt->options, MAGIC_COOKIE, sizeof(MAGIC_COOKIE));
+    pkt->opt_write_offset_ = sizeof(MAGIC_COOKIE);
+    return pkt;
+}
+
+dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
+{
+    dhcp_pkt *pkt = make_pkt();
+    if(pkt == NULL)
+        return NULL;
+    pkt->op = PKT_OP_SEND;
+    pkt->h_type = HTYPE_ETHERNET;
+    pkt->h_len = ETHERNET_LEN;
+    pkt->hops = 0;
+    pkt->secs = req->secs;
+    pkt->flags = req->flags;
+
+    pkt->x_id = req->x_id;
+    pkt->ci_addr = req->ci_addr;
+    pkt->yi_addr = yi_addr;
+    pkt->si_addr = si_addr;
+
+    memcpy(pkt->ch_addr, req->ch_addr, sizeof(pkt->ch_addr));
+    memset(pkt->s_name, 0, sizeof(pkt->s_name));
+    memset(pkt->file, 0, sizeof(pkt->file));
+
     return pkt;
 }
 
@@ -130,7 +158,6 @@ uint8_t find_dhcp_option(
     uint8_t *size,
     bool allocate)
 {
-    const uint8_t MAGIC_COOKIE[] = {99, 130, 83, 99};
     if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
         return OPT_SEARCH_ERROR;
     if (memcmp(pkt->options, MAGIC_COOKIE, sizeof MAGIC_COOKIE) != 0)
@@ -177,7 +204,7 @@ uint8_t add_pkt_option(
     uint8_t *val)
 {
     int16_t offset = pkt->opt_write_offset_;
-    if(PKT_OPTION_MAX_LEN < offset + 2 + len)
+    if (PKT_OPTION_MAX_LEN < offset + 2 + len)
         return OPT_WRITE_ERROR;
     memset(pkt->options + offset++, option_code, 1);
     memset(pkt->options + offset++, len, 1);

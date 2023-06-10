@@ -28,7 +28,6 @@ void run_server(context *ctx);
 ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
 void handle_discover(context *ctx, dhcp_pkt *pkt);
 
-
 int main(int argc, char **argv)
 {
     context ctx;
@@ -44,7 +43,7 @@ void parse_args(int argc, char **argv, context *ctx)
     int opt;
 
     char *address;
-    bool has_network = false, has_mask = false;
+    bool has_network = false, has_mask = false, has_server_addr = false;
     struct in_addr *addr;
 
     ctx->debug = false;
@@ -53,7 +52,7 @@ void parse_args(int argc, char **argv, context *ctx)
     ctx->clients = NULL;
     ctx->num_clients = 0;
 
-    while ((opt = getopt(argc, argv, "n:m:g:d:hv")) != -1)
+    while ((opt = getopt(argc, argv, "s:n:m:g:d:hv")) != -1)
     {
         switch (opt)
         {
@@ -72,6 +71,12 @@ void parse_args(int argc, char **argv, context *ctx)
             }
             has_network = true;
             break;
+        case 's':
+            // Mandatory
+            // IP address of server.
+            if (inet_aton(optarg, &(ctx->srv_address)) < 1)
+                print_usage_and_exit(stderr);
+            has_server_addr = true;
         case 'm':
             // Mandatory
             // Mask option, expected format is an ipv4 address in dotted
@@ -110,7 +115,7 @@ void parse_args(int argc, char **argv, context *ctx)
         }
     }
 
-    if (!has_network || !has_mask || !validate_network(ctx))
+    if (!has_server_addr || !has_network || !has_mask || !validate_network(ctx))
         print_usage_and_exit(stderr);
 }
 
@@ -125,13 +130,17 @@ bool validate_network(context *ctx)
 
     // Check that the addresses we are using are sequentual and not network or
     // broadcast addresses.
-    return raw_start < raw_end && (raw_start > net_address) && (raw_start < broadcast_address) && (raw_end < broadcast_address);
+    return raw_start < raw_end &&
+           raw_start > net_address &&
+           raw_start < broadcast_address &&
+           raw_end < broadcast_address;
 }
 
 void print_usage_and_exit(FILE *f)
 {
     fprintf(f, "Usage: abdhcp -n <start address>:<end address>");
-    fprintf(f, " -m <subnet mask> [-g <gateway] [-d <dns server>]\n");
+    fprintf(f, " -s <server address> -m <subnet mask> [-g <gateway]");
+    fprintf(f, " [-d <dns server>]\n");
     exit(EXIT_FAILURE);
 }
 
@@ -155,7 +164,8 @@ void create_srv_socket(context *ctx)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE;
 
-    if ((ret = getaddrinfo(NULL, "67", &hints, &info)) != 0)
+    ret = getaddrinfo(inet_ntoa(ctx->srv_address), "67", &hints, &info);
+    if (ret != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
         exit(EXIT_FAILURE);
@@ -187,6 +197,9 @@ void create_srv_socket(context *ctx)
         perror("set UDP server socket to broadcast");
         exit(EXIT_FAILURE);
     }
+
+    if(ctx->debug)
+        fprintf(stderr, "Listening on %s\n", inet_ntoa(ctx->srv_address));
 
     freeaddrinfo(info);
 }
@@ -310,11 +323,5 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     // Send response
     dhcp_pkt *response = make_pkt();
     if (response == NULL)
-    {
-        if (client->identifier != NULL)
-            remove_client(ctx, client->identifier, client->id_len, true);
-        else
-            remove_client(ctx, client->ethernet_address, ETHERNET_LEN, true);
-    }
+        remove_client_by_client(ctx, client, true);
 }
-

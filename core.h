@@ -35,6 +35,7 @@ typedef struct
 typedef struct
 {
     int srv_socket;
+    struct in_addr srv_address;
     bool debug;
 
     // CLI supplied options.
