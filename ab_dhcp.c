@@ -12,11 +12,19 @@ static int get_option_length(dhcp_pkt *pkt)
     return pkt->pkt_size - PKT_STATIC_LEN;
 }
 
+dhcp_pkt *make_pkt(void)
+{
+    dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
+    if(pkt == NULL) return NULL;
+    pkt->opt_write_offset_ = 0;
+    return pkt;
+}
+
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 {
     if (size < PKT_STATIC_LEN)
         return NULL;
-    dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
+    dhcp_pkt *pkt = make_pkt();
     if (!pkt)
         return NULL;
 
@@ -106,19 +114,21 @@ bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
 {
     uint8_t buf, ret, buf_size;
-    ret = find_dhcp_option(pkt, OPT_MESSAGE_TYPE, &buf, &buf_size);
-    if (ret != OPT_SEARCH_SUCCESS || buf_size != 1 || buf < 1 || buf > 8)
+    uint8_t *buf_p = &buf;
+    ret = find_dhcp_option(pkt, OPT_MESSAGE_TYPE, &buf_p, &buf_size, false);
+    if (ret != OPT_SEARCH_SUCCESS || buf_size != 1 || *buf_p < 1 || *buf_p > 8)
     {
         return PKT_TYPE_INVALID;
     }
-    return buf;
+    return *buf_p;
 }
 
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint8_t *buf,
-    uint8_t *size)
+    uint8_t **buf,
+    uint8_t *size,
+    bool allocate)
 {
     const uint8_t MAGIC_COOKIE[] = {99, 130, 83, 99};
     if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
@@ -141,7 +151,9 @@ uint8_t find_dhcp_option(
         {
             if (opt_len <= 0 || index + 1 + opt_len >= get_option_length(pkt))
                 return OPT_SEARCH_ERROR;
-            memcpy(buf, pkt->options + index + 2, opt_len);
+            if (allocate && (*buf = malloc(opt_len)) == NULL)
+                return OPT_SEARCH_ERROR;
+            memcpy(*buf, pkt->options + index + 2, opt_len);
             *size = opt_len;
             return OPT_SEARCH_SUCCESS;
         }
@@ -156,4 +168,20 @@ uint8_t find_dhcp_option(
     }
 
     return OPT_SEARCH_ERROR;
+}
+
+uint8_t add_pkt_option(
+    dhcp_pkt *pkt,
+    uint8_t option_code,
+    uint8_t len,
+    uint8_t *val)
+{
+    int16_t offset = pkt->opt_write_offset_;
+    if(PKT_OPTION_MAX_LEN < offset + 2 + len)
+        return OPT_WRITE_ERROR;
+    memset(pkt->options + offset++, option_code, 1);
+    memset(pkt->options + offset++, len, 1);
+    memcpy(pkt->options + offset, val, len);
+    pkt->opt_write_offset_ = offset + len;
+    return OPT_WRITE_SUCCESS;
 }

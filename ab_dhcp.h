@@ -10,6 +10,8 @@
 #define ETHERNET_MTU 1500
 #define ETHERNET_LEN 6
 
+#define PKT_OP_RECV        1
+#define PKT_OP_SEND        2
 #define PKT_CHADDR_LEN     16
 #define PKT_SNAME_LEN      64
 #define PKT_FILE_LEN       128
@@ -29,9 +31,13 @@
 #define OPT_SEARCH_ERROR   0
 #define OPT_SEARCH_SUCCESS 1
 
+#define OPT_WRITE_ERROR OPT_SEARCH_ERROR
+#define OPT_WRITE_SUCCESS OPT_SEARCH_SUCCESS
+
 #define OPT_PADDING      0
 #define OPT_END          255
 #define OPT_MESSAGE_TYPE 53
+#define OPT_IDENTIFIER   61
 
 typedef struct
 {
@@ -43,8 +49,12 @@ typedef struct
     uint8_t file[PKT_FILE_LEN];
     uint8_t options[PKT_OPTION_MAX_LEN];
     ssize_t pkt_size;
+
+    // Internal flags.
+    int16_t opt_write_offset_;
 } dhcp_pkt;
 
+dhcp_pkt *make_pkt(void);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt);
 void free_dhcp_pkt(dhcp_pkt *pkt);
@@ -54,7 +64,8 @@ uint8_t get_dhcp_message_type(dhcp_pkt *pkt);
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint8_t *buf,
-    uint8_t *size);
+    uint8_t **buf,
+    uint8_t *size,
+    bool allocate);
 
 #endif

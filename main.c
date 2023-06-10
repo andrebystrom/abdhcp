@@ -16,35 +16,8 @@
 #include <fcntl.h>
 
 #include "ab_dhcp.h"
-
-typedef enum
-{
-    OFFERED,
-    COMMITED
-} client_state;
-
-typedef struct
-{
-    uint8_t ethernet_address[ETHERNET_LEN];
-    struct in_addr offered_address;
-    client_state state;
-} client;
-
-typedef struct
-{
-    int srv_socket;
-    bool debug;
-
-    // CLI supplied options.
-    struct in_addr start_address;
-    struct in_addr end_address;
-    struct in_addr mask;
-    struct in_addr *gateway;
-    struct in_addr *dns_server;
-
-    client **clients;
-    int num_clients;
-} context;
+#include "dhcp_manager.h"
+#include "core.h"
 
 void parse_args(int argc, char **argv, context *ctx);
 bool validate_network(context *ctx);
@@ -54,9 +27,7 @@ void create_srv_socket(context *ctx);
 void run_server(context *ctx);
 ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
 void handle_discover(context *ctx, dhcp_pkt *pkt);
-int8_t find_usable_client_addr(context *ctx, struct in_addr *addr);
-int8_t insert_client(context *ctx, client *client);
-int client_cmp(const void *c1, const void *c2);
+
 
 int main(int argc, char **argv)
 {
@@ -299,6 +270,8 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     struct in_addr addr;
     client *client;
     int ret;
+    uint8_t *buf;
+    uint8_t buf_len;
 
     if (ctx->debug)
         printf("got dhcp discover pkt\n");
@@ -318,71 +291,30 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     client->state = OFFERED;
     client->offered_address.s_addr = addr.s_addr;
     memcpy(client->ethernet_address, pkt->ch_addr, ETHERNET_LEN);
+    client->identifier = NULL;
+    if ((find_dhcp_option(
+            pkt, OPT_IDENTIFIER, &buf, &buf_len, true)) != OPT_SEARCH_ERROR)
+    {
+        client->identifier = buf;
+        client->id_len = buf_len;
+    }
 
     if (insert_client(ctx, client) < 0)
     {
+        if (client->identifier != NULL)
+            free(client->identifier);
         free(client);
         return;
     }
 
-    // TODO: Send response
-}
-
-int8_t find_usable_client_addr(context *ctx, struct in_addr *addr)
-{
-    uint32_t base_addr = ntohl(ctx->start_address.s_addr);
-    uint32_t mask = ntohl(ctx->mask.s_addr);
-    uint32_t base_addr_host = base_addr & ~mask;
-    uint32_t ret_host = base_addr_host;
-    uint32_t ret_address;
-
-    for (int i = 0; i < ctx->num_clients; i++)
+    // Send response
+    dhcp_pkt *response = make_pkt();
+    if (response == NULL)
     {
-        uint32_t offered_addr = ntohl(ctx->clients[i]->offered_address.s_addr);
-        uint32_t offered_host = offered_addr & ~mask;
-        if (ret_host < offered_host)
-            break;
-
-        ret_host++;
+        if (client->identifier != NULL)
+            remove_client(ctx, client->identifier, client->id_len, true);
+        else
+            remove_client(ctx, client->ethernet_address, ETHERNET_LEN, true);
     }
-
-    ret_address = ret_host | (base_addr & mask);
-
-    addr->s_addr = htonl(ret_address);
-    if (ret_address > ntohl(ctx->end_address.s_addr))
-    {
-        return -1;
-    }
-
-    addr->s_addr = htonl(ret_address);
-    return 0;
 }
 
-int8_t insert_client(context *ctx, client *c)
-{
-    client **tmp = reallocarray(
-        ctx->clients,
-        ctx->num_clients + 1,
-        sizeof(client *));
-    if (tmp == NULL)
-    {
-        fprintf(stderr, "failed to re-allocate clients\n");
-        return -1;
-    }
-
-    ctx->clients = tmp;
-    ctx->clients[ctx->num_clients++] = c;
-    qsort(ctx->clients, ctx->num_clients, sizeof(client *), client_cmp);
-    
-    return 0;
-}
-
-int client_cmp(const void *c1, const void *c2)
-{
-    client **cl1 = (client **)c1;
-    client **cl2 = (client **)c2;
-    long addr1 = ntohl((*cl1)->offered_address.s_addr);
-    long addr2 = ntohl((*cl2)->offered_address.s_addr);
-
-    return (int)addr1 - addr2;
-}
