@@ -14,6 +14,14 @@ static int get_option_length(dhcp_pkt *pkt)
     return pkt->pkt_size - PKT_STATIC_LEN;
 }
 
+static void serialize_uint32(uint8_t *dest, uint32_t data)
+{
+    *dest++ = data >> 24;
+    *dest++ = data >> 16 & 0xff;
+    *dest++ = data >> 8 & 0xff;
+    *dest++ = data & 0xff;
+}
+
 dhcp_pkt *make_pkt(void)
 {
     dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
@@ -27,7 +35,7 @@ dhcp_pkt *make_pkt(void)
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
 {
     dhcp_pkt *pkt = make_pkt();
-    if(pkt == NULL)
+    if (pkt == NULL)
         return NULL;
     pkt->op = PKT_OP_SEND;
     pkt->h_type = HTYPE_ETHERNET;
@@ -88,7 +96,34 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
 {
-    return NULL;
+    uint8_t *buf = malloc(ETHERNET_MTU);
+    *buf++ = pkt->op;
+    *buf++ = pkt->h_type;
+    *buf++ = pkt->h_len;
+    *buf++ = pkt->hops;
+
+    *buf++ = pkt->secs >> 8;
+    *buf++ = pkt->secs & 0xff;
+    *buf++ = pkt->flags >> 8;
+    *buf++ = pkt->flags & 0xff;
+
+    serialize_uint32(buf, pkt->x_id);
+    buf+=4;
+    serialize_uint32(buf, pkt->ci_addr);
+    buf+=4;
+    serialize_uint32(buf, pkt->yi_addr);
+    buf+=4;
+    serialize_uint32(buf, pkt->si_addr);
+    buf+=4;
+    serialize_uint32(buf, pkt->gi_addr);
+    buf+=4;
+
+    memcpy(buf, pkt->ch_addr, sizeof(pkt->ch_addr));
+    memcpy(buf, pkt->s_name, sizeof(pkt->s_name));
+    memcpy(buf, pkt->file, sizeof(pkt->file));
+    memcpy(buf, pkt->options, sizeof(pkt->options));
+
+    return buf;
 }
 
 void free_dhcp_pkt(dhcp_pkt *pkt)

@@ -55,6 +55,7 @@ typedef struct
 } dhcp_pkt;
 
 dhcp_pkt *make_pkt(void);
+dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt);
 void free_dhcp_pkt(dhcp_pkt *pkt);
@@ -67,5 +68,10 @@ uint8_t find_dhcp_option(
     uint8_t **buf,
     uint8_t *size,
     bool allocate);
+uint8_t add_pkt_option(
+    dhcp_pkt *pkt,
+    uint8_t option_code,
+    uint8_t len,
+    uint8_t *val);
 
 #endif

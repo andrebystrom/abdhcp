@@ -321,7 +321,12 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     }
 
     // Send response
-    dhcp_pkt *response = make_pkt();
+    dhcp_pkt *response = make_ret_pkt(
+        pkt, 
+        ntohl(client->offered_address.s_addr), 
+        ntohl(ctx->srv_address.s_addr));
     if (response == NULL)
         remove_client_by_client(ctx, client, true);
+    // TODO: check which parameters the client wants and fill them in with
+    // add_pkt_option
 }
