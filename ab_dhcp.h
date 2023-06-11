@@ -54,6 +54,12 @@ typedef struct
     int16_t opt_write_offset_;
 } dhcp_pkt;
 
+typedef struct
+{
+    uint8_t params[3]; // Only care about subnet mask, gateway and DNS server.
+    uint8_t num_params;
+} requested_params;
+
 dhcp_pkt *make_pkt(void);
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
