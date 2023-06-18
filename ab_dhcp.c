@@ -14,6 +14,49 @@ static int get_option_length(dhcp_pkt *pkt)
     return pkt->pkt_size - PKT_STATIC_LEN;
 }
 
+static uint8_t find_dhcp_option_index(
+    dhcp_pkt *pkt,
+    uint8_t opt,
+    uint8_t *idx,
+    uint8_t *len)
+{
+    if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
+        return OPT_SEARCH_ERROR;
+    if (memcmp(pkt->options, MAGIC_COOKIE, sizeof MAGIC_COOKIE) != 0)
+        return OPT_SEARCH_ERROR;
+
+    int index = sizeof MAGIC_COOKIE;
+    // Continue while we have an option code and option length field.
+    while (index < get_option_length(pkt) + 1 && pkt->options[index] != OPT_END)
+    {
+        if (pkt->options[index] == OPT_PADDING)
+        {
+            index++;
+            continue;
+        }
+
+        int opt_len = pkt->options[index + 1];
+        if (pkt->options[index] == opt)
+        {
+            if (opt_len <= 0 || index + 1 + opt_len >= get_option_length(pkt))
+                return OPT_SEARCH_ERROR;
+            *idx = index + 2;
+            *len = opt_len;
+            return OPT_SEARCH_SUCCESS;
+        }
+        // TODO: Check for option overload option and search through
+        // sname and file later if requested.
+        else
+        {
+            if (index + 1 + opt_len >= get_option_length(pkt))
+                return OPT_SEARCH_ERROR;
+            index += 1 + opt_len;
+        }
+    }
+
+    return OPT_SEARCH_ERROR;
+}
+
 static void serialize_uint32(uint8_t *dest, uint32_t data)
 {
     *dest++ = data >> 24;
@@ -108,15 +151,15 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
     *buf++ = pkt->flags & 0xff;
 
     serialize_uint32(buf, pkt->x_id);
-    buf+=4;
+    buf += 4;
     serialize_uint32(buf, pkt->ci_addr);
-    buf+=4;
+    buf += 4;
     serialize_uint32(buf, pkt->yi_addr);
-    buf+=4;
+    buf += 4;
     serialize_uint32(buf, pkt->si_addr);
-    buf+=4;
+    buf += 4;
     serialize_uint32(buf, pkt->gi_addr);
-    buf+=4;
+    buf += 4;
 
     memcpy(buf, pkt->ch_addr, sizeof(pkt->ch_addr));
     memcpy(buf, pkt->s_name, sizeof(pkt->s_name));
@@ -186,6 +229,21 @@ uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
     return *buf_p;
 }
 
+uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint8_t buf_len)
+{
+    uint8_t index;
+    uint8_t len;
+    uint8_t res = find_dhcp_option_index(
+        pkt, OPT_REQUESTED_PARAM_LIST, &index, &len);
+    if (res != OPT_SEARCH_SUCCESS)
+        return OPT_SEARCH_ERROR;
+    for (int i = 0; i < len; i++)
+    {
+        // TODO: find dns, gateway and subnet mask
+    }
+    return OPT_SEARCH_ERROR;
+}
+
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
@@ -193,43 +251,18 @@ uint8_t find_dhcp_option(
     uint8_t *size,
     bool allocate)
 {
-    if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
+    uint8_t opt_len;
+    uint8_t index;
+    uint8_t res = find_dhcp_option_index(pkt, option_code, &index, &opt_len);
+    if (res != OPT_SEARCH_SUCCESS)
         return OPT_SEARCH_ERROR;
-    if (memcmp(pkt->options, MAGIC_COOKIE, sizeof MAGIC_COOKIE) != 0)
+
+    if (allocate && (*buf = malloc(opt_len)) == NULL)
         return OPT_SEARCH_ERROR;
+    memcpy(*buf, pkt->options + index, opt_len);
+    *size = opt_len;
 
-    int index = sizeof MAGIC_COOKIE;
-    // Continue while we have an option code and option length field.
-    while (index < get_option_length(pkt) + 1 && pkt->options[index] != OPT_END)
-    {
-        if (pkt->options[index] == OPT_PADDING)
-        {
-            index++;
-            continue;
-        }
-
-        int opt_len = pkt->options[index + 1];
-        if (pkt->options[index] == option_code)
-        {
-            if (opt_len <= 0 || index + 1 + opt_len >= get_option_length(pkt))
-                return OPT_SEARCH_ERROR;
-            if (allocate && (*buf = malloc(opt_len)) == NULL)
-                return OPT_SEARCH_ERROR;
-            memcpy(*buf, pkt->options + index + 2, opt_len);
-            *size = opt_len;
-            return OPT_SEARCH_SUCCESS;
-        }
-        // TODO: Check for option overload option and search through
-        // sname and file later if requested.
-        else
-        {
-            if (index + 1 + opt_len >= get_option_length(pkt))
-                return OPT_SEARCH_ERROR;
-            index += 1 + opt_len;
-        }
-    }
-
-    return OPT_SEARCH_ERROR;
+    return OPT_SEARCH_SUCCESS;
 }
 
 uint8_t add_pkt_option(

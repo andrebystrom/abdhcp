@@ -37,6 +37,7 @@
 #define OPT_PADDING      0
 #define OPT_END          255
 #define OPT_MESSAGE_TYPE 53
+#define OPT_REQUESTED_PARAM_LIST 55
 #define OPT_IDENTIFIER   61
 
 typedef struct
@@ -54,12 +55,6 @@ typedef struct
     int16_t opt_write_offset_;
 } dhcp_pkt;
 
-typedef struct
-{
-    uint8_t params[3]; // Only care about subnet mask, gateway and DNS server.
-    uint8_t num_params;
-} requested_params;
-
 dhcp_pkt *make_pkt(void);
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
@@ -68,6 +63,7 @@ void free_dhcp_pkt(dhcp_pkt *pkt);
 void print_dhcp_pkt(dhcp_pkt *pkt);
 bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt);
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt);
+uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint8_t len);
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
