@@ -34,11 +34,14 @@
 #define OPT_WRITE_ERROR OPT_SEARCH_ERROR
 #define OPT_WRITE_SUCCESS OPT_SEARCH_SUCCESS
 
-#define OPT_PADDING      0
-#define OPT_END          255
-#define OPT_MESSAGE_TYPE 53
+#define OPT_PADDING              0
+#define OPT_SUBNET_MASK          1
+#define OPT_DEFAULT_ROUTER       3
+#define OPT_DNS_SERVER           6
+#define OPT_END                  255
+#define OPT_MESSAGE_TYPE         53
 #define OPT_REQUESTED_PARAM_LIST 55
-#define OPT_IDENTIFIER   61
+#define OPT_IDENTIFIER           61
 
 typedef struct
 {
@@ -63,17 +66,17 @@ void free_dhcp_pkt(dhcp_pkt *pkt);
 void print_dhcp_pkt(dhcp_pkt *pkt);
 bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt);
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt);
-uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint8_t len);
+uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t len);
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
     uint8_t **buf,
-    uint8_t *size,
+    uint16_t *size,
     bool allocate);
 uint8_t add_pkt_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint8_t len,
+    uint16_t len,
     uint8_t *val);
 
 #endif

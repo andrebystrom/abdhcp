@@ -17,8 +17,8 @@ static int get_option_length(dhcp_pkt *pkt)
 static uint8_t find_dhcp_option_index(
     dhcp_pkt *pkt,
     uint8_t opt,
-    uint8_t *idx,
-    uint8_t *len)
+    uint16_t *idx,
+    uint16_t *len)
 {
     if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
         return OPT_SEARCH_ERROR;
@@ -219,7 +219,8 @@ bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
 
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
 {
-    uint8_t buf, ret, buf_size;
+    uint8_t buf, ret;
+    uint16_t buf_size;
     uint8_t *buf_p = &buf;
     ret = find_dhcp_option(pkt, OPT_MESSAGE_TYPE, &buf_p, &buf_size, false);
     if (ret != OPT_SEARCH_SUCCESS || buf_size != 1 || *buf_p < 1 || *buf_p > 8)
@@ -229,30 +230,37 @@ uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
     return *buf_p;
 }
 
-uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint8_t buf_len)
+uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
 {
-    uint8_t index;
-    uint8_t len;
-    uint8_t res = find_dhcp_option_index(
-        pkt, OPT_REQUESTED_PARAM_LIST, &index, &len);
+    uint16_t index, len, res;
+    uint8_t num_params = 0;
+
+    res = find_dhcp_option_index(pkt, OPT_REQUESTED_PARAM_LIST, &index, &len);
+    fprintf(stderr, "res: %u idx: %u len: %u\n", res, index, len);
     if (res != OPT_SEARCH_SUCCESS)
         return OPT_SEARCH_ERROR;
-    for (int i = 0; i < len; i++)
+    for (int i = index; i < index + len && num_params < buf_len; i++)
     {
-        // TODO: find dns, gateway and subnet mask
+        uint8_t opt = pkt->options[i];
+        if (opt == OPT_SUBNET_MASK ||
+            opt == OPT_DEFAULT_ROUTER ||
+            opt == OPT_DNS_SERVER)
+        {
+            buf[num_params++] = opt;
+        }
     }
-    return OPT_SEARCH_ERROR;
+    return num_params;
 }
 
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
     uint8_t **buf,
-    uint8_t *size,
+    uint16_t *size,
     bool allocate)
 {
-    uint8_t opt_len;
-    uint8_t index;
+    uint16_t opt_len;
+    uint16_t index;
     uint8_t res = find_dhcp_option_index(pkt, option_code, &index, &opt_len);
     if (res != OPT_SEARCH_SUCCESS)
         return OPT_SEARCH_ERROR;
@@ -268,7 +276,7 @@ uint8_t find_dhcp_option(
 uint8_t add_pkt_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint8_t len,
+    uint16_t len,
     uint8_t *val)
 {
     int16_t offset = pkt->opt_write_offset_;

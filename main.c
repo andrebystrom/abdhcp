@@ -164,7 +164,7 @@ void create_srv_socket(context *ctx)
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_flags = AI_PASSIVE;
 
-    ret = getaddrinfo(inet_ntoa(ctx->srv_address), "67", &hints, &info);
+    ret = getaddrinfo(NULL, "67", &hints, &info);
     if (ret != 0)
     {
         fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(ret));
@@ -198,8 +198,8 @@ void create_srv_socket(context *ctx)
         exit(EXIT_FAILURE);
     }
 
-    if(ctx->debug)
-        fprintf(stderr, "Listening on %s\n", inet_ntoa(ctx->srv_address));
+    if (ctx->debug)
+        fprintf(stderr, "Listening on 0.0.0.0:67\n");
 
     freeaddrinfo(info);
 }
@@ -284,7 +284,10 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     client *client;
     int ret;
     uint8_t *buf;
-    uint8_t buf_len;
+    uint16_t buf_len;
+    const int NUM_PARAMS = 3;
+    uint8_t param_len;
+    uint8_t params[NUM_PARAMS];
 
     if (ctx->debug)
         printf("got dhcp discover pkt\n");
@@ -322,11 +325,28 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
 
     // Send response
     dhcp_pkt *response = make_ret_pkt(
-        pkt, 
-        ntohl(client->offered_address.s_addr), 
+        pkt,
+        ntohl(client->offered_address.s_addr),
         ntohl(ctx->srv_address.s_addr));
     if (response == NULL)
         remove_client_by_client(ctx, client, true);
-    // TODO: check which parameters the client wants and fill them in with
-    // add_pkt_option
+    
+    param_len = get_dhcp_requested_params(pkt, params, NUM_PARAMS);
+    for (int i = 0; i < param_len; i++)
+    {
+        switch (params[i])
+        {
+            case OPT_SUBNET_MASK:
+                printf("want subnet\n");
+                break;
+            case OPT_DEFAULT_ROUTER:
+                printf("want router\n");
+                break;
+            case OPT_DNS_SERVER:
+                printf("want dns\n");
+                break;
+            default:
+                break;
+        }
+    }
 }
