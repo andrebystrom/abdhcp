@@ -288,6 +288,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     const int NUM_PARAMS = 3;
     uint8_t param_len;
     uint8_t params[NUM_PARAMS];
+    struct sockaddr_in broadcast;
 
     if (ctx->debug)
         printf("got dhcp discover pkt\n");
@@ -317,6 +318,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
 
     if (insert_client(ctx, client) < 0)
     {
+        fprintf(stderr, "failed to insert client into client table\n");
         if (client->identifier != NULL)
             free(client->identifier);
         free(client);
@@ -329,24 +331,71 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
         ntohl(client->offered_address.s_addr),
         ntohl(ctx->srv_address.s_addr));
     if (response == NULL)
+    {
+        fprintf(stderr, "failed to create dhcp offer response\n");
         remove_client_by_client(ctx, client, true);
-    
+        return;
+    }
+
     param_len = get_dhcp_requested_params(pkt, params, NUM_PARAMS);
     for (int i = 0; i < param_len; i++)
     {
+        uint8_t addr_buf[4];
         switch (params[i])
         {
-            case OPT_SUBNET_MASK:
-                printf("want subnet\n");
-                break;
-            case OPT_DEFAULT_ROUTER:
-                printf("want router\n");
-                break;
-            case OPT_DNS_SERVER:
-                printf("want dns\n");
-                break;
-            default:
-                break;
+        case OPT_SUBNET_MASK:
+            memcpy(addr_buf, &ctx->mask.s_addr, sizeof addr_buf);
+            add_pkt_option(
+                response, OPT_SUBNET_MASK, sizeof addr_buf, addr_buf);
+            break;
+        case OPT_DEFAULT_ROUTER:
+            if (ctx->gateway)
+            {
+                memcpy(addr_buf, &ctx->gateway->s_addr, sizeof addr_buf);
+                add_pkt_option(
+                    response, OPT_DEFAULT_ROUTER, sizeof addr_buf, addr_buf);
+            }
+            break;
+        case OPT_DNS_SERVER:
+            if (ctx->dns_server)
+            {
+                memcpy(addr_buf, &ctx->gateway->s_addr, sizeof addr_buf);
+                add_pkt_option(
+                    response, OPT_DNS_SERVER, sizeof addr_buf, addr_buf);
+            }
+            break;
+        default:
+            break;
         }
     }
+
+    memset(&broadcast, 0, sizeof broadcast);
+    const int DHCP_CLIENT_PORT = 68;
+    broadcast.sin_family = AF_INET;
+    broadcast.sin_port = htons(DHCP_CLIENT_PORT);
+    broadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+
+    uint8_t *response_buf = serialize_dhcp_pkt(response);
+    if (response_buf == NULL)
+    {
+        fprintf(stderr, "failed to serialize dhcp offer response\n");
+        remove_client_by_client(ctx, client, true);
+        free_dhcp_pkt(response);
+        return;
+    }
+
+    ret = sendto(
+        ctx->srv_socket,
+        response_buf,
+        ETHERNET_MTU,
+        0,
+        (struct sockaddr *)&broadcast,
+        sizeof(broadcast));
+    if (ret != ETHERNET_MTU)
+    {
+        perror("failed to send dhcp offer response");
+        remove_client_by_client(ctx, client, true);
+        free_dhcp_pkt(response);
+        free(response_buf);
+    } 
 }
