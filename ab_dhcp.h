@@ -40,6 +40,7 @@
 #define OPT_DNS_SERVER           6
 #define OPT_END                  255
 #define OPT_MESSAGE_TYPE         53
+#define OPT_MESSAGE_TYPE_OFFER   2
 #define OPT_REQUESTED_PARAM_LIST 55
 #define OPT_IDENTIFIER           61
 
@@ -76,7 +77,8 @@ uint8_t find_dhcp_option(
 uint8_t add_pkt_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint16_t len,
+    uint8_t len,
     uint8_t *val);
+uint8_t add_pkt_opt_end(dhcp_pkt *pkt);
 
 #endif

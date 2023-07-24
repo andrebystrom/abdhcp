@@ -59,7 +59,7 @@ static uint8_t find_dhcp_option_index(
 
 static void serialize_uint32(uint8_t *dest, uint32_t data)
 {
-    *dest++ = data >> 24;
+    *dest++ = data >> 24 & 0xff;
     *dest++ = data >> 16 & 0xff;
     *dest++ = data >> 8 & 0xff;
     *dest++ = data & 0xff;
@@ -140,18 +140,21 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
 {
     uint8_t *buf = malloc(ETHERNET_MTU);
+    uint8_t *res = buf;
+
     *buf++ = pkt->op;
     *buf++ = pkt->h_type;
     *buf++ = pkt->h_len;
     *buf++ = pkt->hops;
 
+    serialize_uint32(buf, pkt->x_id);
+    buf += 4;
+
     *buf++ = pkt->secs >> 8;
     *buf++ = pkt->secs & 0xff;
     *buf++ = pkt->flags >> 8;
     *buf++ = pkt->flags & 0xff;
-
-    serialize_uint32(buf, pkt->x_id);
-    buf += 4;
+    
     serialize_uint32(buf, pkt->ci_addr);
     buf += 4;
     serialize_uint32(buf, pkt->yi_addr);
@@ -162,11 +165,14 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
     buf += 4;
 
     memcpy(buf, pkt->ch_addr, sizeof(pkt->ch_addr));
+    buf += sizeof(pkt->ch_addr);
     memcpy(buf, pkt->s_name, sizeof(pkt->s_name));
+    buf += sizeof(pkt->s_name);
     memcpy(buf, pkt->file, sizeof(pkt->file));
+    buf += sizeof(pkt->file);
     memcpy(buf, pkt->options, sizeof(pkt->options));
 
-    return buf;
+    return res;
 }
 
 void free_dhcp_pkt(dhcp_pkt *pkt)
@@ -276,15 +282,28 @@ uint8_t find_dhcp_option(
 uint8_t add_pkt_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
-    uint16_t len,
+    uint8_t len,
     uint8_t *val)
 {
     int16_t offset = pkt->opt_write_offset_;
     if (PKT_OPTION_MAX_LEN < offset + 2 + len)
         return OPT_WRITE_ERROR;
-    memset(pkt->options + offset++, option_code, 1);
-    memset(pkt->options + offset++, len, 1);
+    memset(pkt->options + offset, option_code, 1);
+    offset++;
+    memset(pkt->options + offset, len, 1);
+    offset++;
     memcpy(pkt->options + offset, val, len);
     pkt->opt_write_offset_ = offset + len;
+    return OPT_WRITE_SUCCESS;
+}
+
+uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
+{
+    uint16_t offset = pkt->opt_write_offset_;
+    if(PKT_OPTION_MAX_LEN <= offset) {
+        return OPT_WRITE_ERROR;
+    }
+    memset(pkt->options + offset, OPT_END, 1);
+    pkt->opt_write_offset_++;
     return OPT_WRITE_SUCCESS;
 }

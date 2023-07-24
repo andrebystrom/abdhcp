@@ -338,6 +338,8 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     }
 
     param_len = get_dhcp_requested_params(pkt, params, NUM_PARAMS);
+    uint8_t val = OPT_MESSAGE_TYPE_OFFER;
+    add_pkt_option(response, OPT_MESSAGE_TYPE, 1, &val);
     for (int i = 0; i < param_len; i++)
     {
         uint8_t addr_buf[4];
@@ -368,6 +370,8 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
             break;
         }
     }
+
+    add_pkt_opt_end(response);
 
     memset(&broadcast, 0, sizeof broadcast);
     const int DHCP_CLIENT_PORT = 68;
