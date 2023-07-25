@@ -18,7 +18,7 @@ static uint8_t find_dhcp_option_index(
     dhcp_pkt *pkt,
     uint8_t opt,
     uint16_t *idx,
-    uint16_t *len)
+    uint8_t *len)
 {
     if (get_option_length(pkt) < sizeof MAGIC_COOKIE)
         return OPT_SEARCH_ERROR;
@@ -36,11 +36,12 @@ static uint8_t find_dhcp_option_index(
         }
 
         int opt_len = pkt->options[index + 1];
+        int opt_val_idx = index + 2;
         if (pkt->options[index] == opt)
         {
-            if (opt_len <= 0 || index + 1 + opt_len >= get_option_length(pkt))
+            if (opt_len <= 0 || opt_val_idx + opt_len >= get_option_length(pkt))
                 return OPT_SEARCH_ERROR;
-            *idx = index + 2;
+            *idx = opt_val_idx;
             *len = opt_len;
             return OPT_SEARCH_SUCCESS;
         }
@@ -48,9 +49,9 @@ static uint8_t find_dhcp_option_index(
         // sname and file later if requested.
         else
         {
-            if (index + 1 + opt_len >= get_option_length(pkt))
+            if (opt_val_idx + opt_len >= get_option_length(pkt))
                 return OPT_SEARCH_ERROR;
-            index += 1 + opt_len;
+            index = opt_val_idx + opt_len;
         }
     }
 
@@ -65,11 +66,20 @@ static void serialize_uint32(uint8_t *dest, uint32_t data)
     *dest++ = data & 0xff;
 }
 
-dhcp_pkt *make_pkt(void)
+dhcp_pkt *make_pkt(bool zero)
 {
     dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
     if (pkt == NULL)
         return NULL;
+
+    if (zero)
+    {
+        memset(pkt->ch_addr, OPT_PADDING, sizeof(pkt->ch_addr));
+        memset(pkt->s_name, OPT_PADDING, sizeof(pkt->s_name));
+        memset(pkt->file, OPT_PADDING, sizeof(pkt->file));
+        memset(pkt->options, OPT_PADDING, sizeof(pkt->options));
+    }
+
     memcpy(pkt->options, MAGIC_COOKIE, sizeof(MAGIC_COOKIE));
     pkt->opt_write_offset_ = sizeof(MAGIC_COOKIE);
     return pkt;
@@ -77,7 +87,7 @@ dhcp_pkt *make_pkt(void)
 
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
 {
-    dhcp_pkt *pkt = make_pkt();
+    dhcp_pkt *pkt = make_pkt(true);
     if (pkt == NULL)
         return NULL;
     pkt->op = PKT_OP_SEND;
@@ -103,7 +113,7 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 {
     if (size < PKT_STATIC_LEN)
         return NULL;
-    dhcp_pkt *pkt = make_pkt();
+    dhcp_pkt *pkt = make_pkt(false);
     if (!pkt)
         return NULL;
 
@@ -154,7 +164,7 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
     *buf++ = pkt->secs & 0xff;
     *buf++ = pkt->flags >> 8;
     *buf++ = pkt->flags & 0xff;
-    
+
     serialize_uint32(buf, pkt->ci_addr);
     buf += 4;
     serialize_uint32(buf, pkt->yi_addr);
@@ -238,7 +248,8 @@ uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
 
 uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
 {
-    uint16_t index, len, res;
+    uint16_t index, res;
+    uint8_t len;
     uint8_t num_params = 0;
 
     res = find_dhcp_option_index(pkt, OPT_REQUESTED_PARAM_LIST, &index, &len);
@@ -265,7 +276,7 @@ uint8_t find_dhcp_option(
     uint16_t *size,
     bool allocate)
 {
-    uint16_t opt_len;
+    uint8_t opt_len;
     uint16_t index;
     uint8_t res = find_dhcp_option_index(pkt, option_code, &index, &opt_len);
     if (res != OPT_SEARCH_SUCCESS)
@@ -300,7 +311,8 @@ uint8_t add_pkt_option(
 uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
 {
     uint16_t offset = pkt->opt_write_offset_;
-    if(PKT_OPTION_MAX_LEN <= offset) {
+    if (PKT_OPTION_MAX_LEN <= offset)
+    {
         return OPT_WRITE_ERROR;
     }
     memset(pkt->options + offset, OPT_END, 1);

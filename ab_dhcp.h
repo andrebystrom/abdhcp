@@ -43,6 +43,8 @@
 #define OPT_MESSAGE_TYPE_OFFER   2
 #define OPT_REQUESTED_PARAM_LIST 55
 #define OPT_IDENTIFIER           61
+#define OPT_SERVER_IDENTIFIER    54
+#define OPT_LEASE_TIME           51
 
 typedef struct
 {
@@ -59,7 +61,7 @@ typedef struct
     int16_t opt_write_offset_;
 } dhcp_pkt;
 
-dhcp_pkt *make_pkt(void);
+dhcp_pkt *make_pkt(bool zero);
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt);
