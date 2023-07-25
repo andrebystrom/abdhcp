@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <string.h>
 #include <getopt.h>
+#include <time.h>
 
 // net includes.
 #include <sys/types.h>
@@ -77,6 +78,7 @@ void parse_args(int argc, char **argv, context *ctx)
             if (inet_aton(optarg, &(ctx->srv_address)) < 1)
                 print_usage_and_exit(stderr);
             has_server_addr = true;
+            break;
         case 'm':
             // Mandatory
             // Mask option, expected format is an ipv4 address in dotted
@@ -286,7 +288,8 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     uint8_t *buf;
     uint16_t buf_len;
     const int NUM_PARAMS = 3;
-    uint8_t param_len;
+    uint8_t param_len, opt;
+    uint32_t long_opt;
     uint8_t params[NUM_PARAMS];
     struct sockaddr_in broadcast;
 
@@ -315,6 +318,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
         client->identifier = buf;
         client->id_len = buf_len;
     }
+    client->lease_end = time(NULL) + DEFAULT_LEASE_SEC;
 
     if (insert_client(ctx, client) < 0)
     {
@@ -327,8 +331,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
 
     // Send response
     dhcp_pkt *response = make_ret_pkt(
-        pkt,
-        ntohl(client->offered_address.s_addr),
+        pkt, ntohl(client->offered_address.s_addr),
         ntohl(ctx->srv_address.s_addr));
     if (response == NULL)
     {
@@ -338,22 +341,23 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     }
 
     param_len = get_dhcp_requested_params(pkt, params, NUM_PARAMS);
-    uint8_t val = OPT_MESSAGE_TYPE_OFFER;
-    add_pkt_option(response, OPT_MESSAGE_TYPE, 1, &val);
+    opt = OPT_MESSAGE_TYPE_OFFER;
+    add_pkt_option(response, OPT_MESSAGE_TYPE, sizeof opt, &opt);
+
     for (int i = 0; i < param_len; i++)
     {
         uint8_t addr_buf[4];
         switch (params[i])
         {
         case OPT_SUBNET_MASK:
-            memcpy(addr_buf, &ctx->mask.s_addr, sizeof addr_buf);
+            memcpy(addr_buf, &(ctx->mask.s_addr), sizeof addr_buf);
             add_pkt_option(
                 response, OPT_SUBNET_MASK, sizeof addr_buf, addr_buf);
             break;
         case OPT_DEFAULT_ROUTER:
             if (ctx->gateway)
             {
-                memcpy(addr_buf, &ctx->gateway->s_addr, sizeof addr_buf);
+                memcpy(addr_buf, &(ctx->gateway->s_addr), sizeof addr_buf);
                 add_pkt_option(
                     response, OPT_DEFAULT_ROUTER, sizeof addr_buf, addr_buf);
             }
@@ -361,7 +365,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
         case OPT_DNS_SERVER:
             if (ctx->dns_server)
             {
-                memcpy(addr_buf, &ctx->gateway->s_addr, sizeof addr_buf);
+                memcpy(addr_buf, &(ctx->gateway->s_addr), sizeof addr_buf);
                 add_pkt_option(
                     response, OPT_DNS_SERVER, sizeof addr_buf, addr_buf);
             }
@@ -370,7 +374,12 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
             break;
         }
     }
-
+    add_pkt_option(response, OPT_SERVER_IDENTIFIER,
+                   sizeof ctx->srv_address.s_addr,
+                   (uint8_t *)&(ctx->srv_address.s_addr));
+    long_opt = htonl(DEFAULT_LEASE_SEC);
+    add_pkt_option(response, OPT_LEASE_TIME, sizeof(uint32_t),
+                   (uint8_t *)&long_opt);
     add_pkt_opt_end(response);
 
     memset(&broadcast, 0, sizeof broadcast);
@@ -401,5 +410,5 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
         remove_client_by_client(ctx, client, true);
         free_dhcp_pkt(response);
         free(response_buf);
-    } 
+    }
 }

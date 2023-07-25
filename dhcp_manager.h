@@ -1,6 +1,8 @@
 #ifndef DHCP_MANAGER_H
 #define DHCP_MANAGER_H
 
+#define DEFAULT_LEASE_SEC 3600
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>

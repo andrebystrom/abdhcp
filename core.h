@@ -30,6 +30,7 @@ typedef struct
     client_state state;
     uint8_t *identifier;
     uint8_t id_len;
+    time_t lease_end;
 } client;
 
 typedef struct
