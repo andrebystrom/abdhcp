@@ -27,7 +27,6 @@ void free_context(context *ctx);
 void create_srv_socket(context *ctx);
 void run_server(context *ctx);
 ssize_t read_msg_or_die(context *ctx, uint8_t *buf, const int BUF_SIZE);
-void handle_discover(context *ctx, dhcp_pkt *pkt);
 
 int main(int argc, char **argv)
 {
