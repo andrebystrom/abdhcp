@@ -133,6 +133,8 @@ client_cmp(const void *c1, const void *c2)
     return (int)addr1 - addr2;
 }
 
+/* DHCP DISCOVER */
+
 void 
 handle_discover(context *ctx, dhcp_pkt *pkt)
 {
