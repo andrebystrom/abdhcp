@@ -253,7 +253,6 @@ uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
     uint8_t num_params = 0;
 
     res = find_dhcp_option_index(pkt, OPT_REQUESTED_PARAM_LIST, &index, &len);
-    fprintf(stderr, "res: %u idx: %u len: %u\n", res, index, len);
     if (res != OPT_SEARCH_SUCCESS)
         return OPT_SEARCH_ERROR;
     for (int i = index; i < index + len && num_params < buf_len; i++)
