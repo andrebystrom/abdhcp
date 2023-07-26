@@ -8,7 +8,7 @@ Clone the project, cd into it and run
 The binary is created in the build directory.
 
 # Usage
->abdhcp -n \<start address>:\<end address> -s \<server address> -m \<subnet mask> [-g \<gateway] [-d \<dns server>]
+>abdhcp -n \<start address>:\<end address> -s \<server address> -m \<subnet mask> [-g \<gateway>] [-d \<dns server>]
 
 The flag -v can be used to get more detailed output.
 
