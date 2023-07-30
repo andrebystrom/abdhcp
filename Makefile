@@ -2,9 +2,14 @@ CC=gcc
 CFLAGS=-std=gnu11 -Wall -g -Werror
 BUILDDIR=./build
 
+ifdef SAN
+	CFLAGS+= -fsanitize=address
+	LDFLAGS+=-fsanitize=address
+endif
+
 $(BUILDDIR)/abdhcp: $(BUILDDIR)/main.o $(BUILDDIR)/ab_dhcp.o $(BUILDDIR)/dhcp_manager.o
 	mkdir -p $(BUILDDIR)
-	$(CC) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(BUILDDIR)/main.o: main.c core.h ab_dhcp.h dhcp_manager.h
 	mkdir -p $(BUILDDIR)
