@@ -146,7 +146,7 @@ handle_discover(context *ctx, dhcp_pkt *pkt)
         printf("got dhcp discover pkt\n");
 
     // Try to register the client in the allocation pool.
-    if ((client = malloc(sizeof(client))) == NULL)
+    if ((client = malloc(sizeof(*client))) == NULL)
     {
         fprintf(stderr, "failed to allocate client memory\n");
         return;
