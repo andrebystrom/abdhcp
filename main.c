@@ -241,6 +241,7 @@ void run_server(context *ctx)
         case PKT_TYPE_OFFER:
             break;
         case PKT_TYPE_REQUEST:
+            handle_request(ctx, pkt);
             break;
         case PKT_TYPE_DECLINE:
             break;

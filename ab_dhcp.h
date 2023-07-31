@@ -41,6 +41,7 @@
 #define OPT_END                  255
 #define OPT_MESSAGE_TYPE         53
 #define OPT_MESSAGE_TYPE_OFFER   2
+#define OPT_MESSAGE_TYPE_ACK     5
 #define OPT_REQUESTED_PARAM_LIST 55
 #define OPT_IDENTIFIER           61
 #define OPT_SERVER_IDENTIFIER    54

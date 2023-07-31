@@ -16,16 +16,34 @@
 #include "core.h"
 #include "dhcp_manager.h"
 
-static int8_t 
-register_client(context *ctx, client *client, dhcp_pkt *pkt);
+static int8_t
+add_response_options(
+    context *ctx,
+    dhcp_pkt *req, dhcp_pkt *response,
+    client *client,
+    uint8_t pkt_type);
 
-static int8_t 
+static int8_t
 add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response);
 
 static int8_t
-send_discover_response(context *ctx, dhcp_pkt *response);
+send_response(context *ctx, dhcp_pkt *response);
 
-int8_t 
+static int8_t
+register_client(context *ctx, client *client, dhcp_pkt *pkt);
+
+static void
+handle_request_offer_response(
+    context *ctx,
+    dhcp_pkt *pkt,
+    uint8_t *serv_id, uint8_t serv_id_len,
+    uint8_t *client_id, uint8_t client_id_len);
+
+static void
+handle_request_renew(context *ctx, dhcp_pkt *pkt,
+                     uint8_t *client_id, uint8_t client_id_len);
+
+int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr)
 {
     uint32_t base_addr = ntohl(ctx->start_address.s_addr);
@@ -56,7 +74,7 @@ find_usable_client_addr(context *ctx, struct in_addr *addr)
     return 0;
 }
 
-int8_t 
+int8_t
 insert_client(context *ctx, client *c)
 {
     client **tmp = reallocarray(
@@ -76,7 +94,7 @@ insert_client(context *ctx, client *c)
     return 0;
 }
 
-int8_t 
+int8_t
 remove_client_by_client(context *ctx, client *client, bool free_it)
 {
     if (client->identifier != NULL)
@@ -85,7 +103,7 @@ remove_client_by_client(context *ctx, client *client, bool free_it)
     return remove_client(ctx, client->ethernet_address, ETHERNET_LEN, free_it);
 }
 
-int8_t 
+int8_t
 remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
 {
     for (int i = 0; i < ctx->num_clients; i++)
@@ -122,8 +140,35 @@ remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
     return -1;
 }
 
-int 
-client_cmp(const void *c1, const void *c2)
+int8_t
+get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res)
+{
+    for (int i = 0; i < ctx->num_clients; i++)
+    {
+        client *c = ctx->clients[i];
+        if (c->identifier)
+        {
+            if (c->id_len == id_len && memcmp(c->identifier, id, id_len) == 0)
+            {
+                *res = c;
+                return 0;
+            }
+        }
+        else
+        {
+            if (ETHERNET_LEN == id_len &&
+                memcmp(c->ethernet_address, id, id_len) == 0)
+            {
+                *res = c;
+                return 0;
+            }
+        }
+    }
+
+    return -1;
+}
+
+int client_cmp(const void *c1, const void *c2)
 {
     client **cl1 = (client **)c1;
     client **cl2 = (client **)c2;
@@ -133,97 +178,26 @@ client_cmp(const void *c1, const void *c2)
     return (int)addr1 - addr2;
 }
 
-/* DHCP DISCOVER */
+/* GENERAL */
 
-void 
-handle_discover(context *ctx, dhcp_pkt *pkt)
+static int8_t
+add_response_options(
+    context *ctx,
+    dhcp_pkt *req, dhcp_pkt *response,
+    client *client,
+    uint8_t pkt_type)
 {
-    client *client;
-    uint8_t opt;
-    uint32_t long_opt;
+    uint32_t lease = htonl(client->lease_end - client->lease_start);
 
-    if (ctx->debug)
-        printf("got dhcp discover pkt\n");
-
-    // Try to register the client in the allocation pool.
-    if ((client = malloc(sizeof(*client))) == NULL)
-    {
-        fprintf(stderr, "failed to allocate client memory\n");
-        return;
-    }
-    if (register_client(ctx, client, pkt) < 0)
-    {
-        // Issue with registering the client, eg. address pool exhausted.
-        return;
-    }
-
-    // Send response
-    dhcp_pkt *response = make_ret_pkt(
-        pkt, ntohl(client->offered_address.s_addr),
-        ntohl(ctx->srv_address.s_addr));
-    if (response == NULL)
-    {
-        fprintf(stderr, "failed to create dhcp offer response\n");
-        goto err_client;
-    }
-
-    opt = OPT_MESSAGE_TYPE_OFFER;
-    add_pkt_option(response, OPT_MESSAGE_TYPE, sizeof opt, &opt);
-    add_requested_options(ctx, pkt, response);
+    add_pkt_option(response, OPT_MESSAGE_TYPE, sizeof pkt_type, &pkt_type);
+    add_requested_options(ctx, req, response);
     add_pkt_option(response, OPT_SERVER_IDENTIFIER,
                    sizeof ctx->srv_address.s_addr,
                    (uint8_t *)&(ctx->srv_address.s_addr));
-    long_opt = htonl(DEFAULT_LEASE_SEC);
+    client->lease_end = htonl(DEFAULT_LEASE_SEC);
     add_pkt_option(response, OPT_LEASE_TIME, sizeof(uint32_t),
-                   (uint8_t *)&long_opt);
+                   (uint8_t *)&lease);
     add_pkt_opt_end(response);
-
-    if (send_discover_response(ctx, response) < 0)
-        goto err_response;
-
-    free_dhcp_pkt(response);
-    return;
-
-err_response:
-    free_dhcp_pkt(response);
-err_client:
-    remove_client_by_client(ctx, client, true);
-}
-
-static int8_t 
-register_client(context *ctx, client *client, dhcp_pkt *pkt)
-{
-    struct in_addr addr;
-    int ret;
-    uint8_t *buf;
-    uint16_t buf_len;
-
-    if ((ret = find_usable_client_addr(ctx, &addr)) < 0)
-    {
-        fprintf(stderr, "failed to find usable address for discover\n");
-        return -1;
-    }
-
-    client->state = OFFERED;
-    client->offered_address.s_addr = addr.s_addr;
-    memcpy(client->ethernet_address, pkt->ch_addr, ETHERNET_LEN);
-    client->identifier = NULL;
-    if ((find_dhcp_option(
-            pkt, OPT_IDENTIFIER, &buf, &buf_len, true)) != OPT_SEARCH_ERROR)
-    {
-        client->identifier = buf;
-        client->id_len = buf_len;
-    }
-    client->lease_end = time(NULL) + DEFAULT_LEASE_SEC;
-
-    if (insert_client(ctx, client) < 0)
-    {
-        fprintf(stderr, "failed to insert client into client table\n");
-        if (client->identifier != NULL)
-            free(client->identifier);
-        free(client);
-        return -1;
-    }
 
     return 0;
 }
@@ -256,7 +230,7 @@ add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
         case OPT_DNS_SERVER:
             if (ctx->dns_server)
             {
-                memcpy(addr_buf, &(ctx->gateway->s_addr), sizeof addr_buf);
+                memcpy(addr_buf, &(ctx->dns_server->s_addr), sizeof addr_buf);
                 add_pkt_option(
                     response, OPT_DNS_SERVER, sizeof addr_buf, addr_buf);
             }
@@ -268,8 +242,8 @@ add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
     return 0;
 }
 
-static int8_t 
-send_discover_response(context *ctx, dhcp_pkt *response)
+static int8_t
+send_response(context *ctx, dhcp_pkt *response)
 {
     struct sockaddr_in broadcast;
     ssize_t ret;
@@ -283,7 +257,7 @@ send_discover_response(context *ctx, dhcp_pkt *response)
     uint8_t *response_buf = serialize_dhcp_pkt(response);
     if (response_buf == NULL)
     {
-        fprintf(stderr, "failed to serialize dhcp offer response\n");
+        fprintf(stderr, "failed to serialize dhcp message\n");
         return -1;
     }
 
@@ -296,10 +270,188 @@ send_discover_response(context *ctx, dhcp_pkt *response)
         sizeof(broadcast));
     if (ret != ETHERNET_MTU)
     {
-        perror("failed to send dhcp offer response");
+        perror("failed to send dhcp response");
         free(response_buf);
         return -1;
     }
 
     return 0;
+}
+
+/* DHCP DISCOVER */
+
+void handle_discover(context *ctx, dhcp_pkt *pkt)
+{
+    client *client;
+
+    if (ctx->debug)
+        printf("got dhcp discover pkt\n");
+
+    // Try to register the client in the allocation pool.
+    if ((client = malloc(sizeof(*client))) == NULL)
+    {
+        fprintf(stderr, "failed to allocate client memory\n");
+        return;
+    }
+    if (register_client(ctx, client, pkt) < 0)
+    {
+        // Issue with registering the client, eg. address pool exhausted.
+        return;
+    }
+
+    // Send response
+    dhcp_pkt *response = make_ret_pkt(
+        pkt, ntohl(client->offered_address.s_addr),
+        ntohl(ctx->srv_address.s_addr));
+    if (response == NULL)
+    {
+        fprintf(stderr, "failed to create dhcp offer response\n");
+        goto err_client;
+    }
+
+    add_response_options(ctx, pkt, response, client, OPT_MESSAGE_TYPE_OFFER);
+
+    if (send_response(ctx, response) < 0)
+        goto err_response;
+
+    free_dhcp_pkt(response);
+    return;
+
+err_response:
+    free_dhcp_pkt(response);
+err_client:
+    remove_client_by_client(ctx, client, true);
+}
+
+static int8_t
+register_client(context *ctx, client *client, dhcp_pkt *pkt)
+{
+    struct in_addr addr;
+    int ret;
+    uint8_t *buf;
+    uint16_t buf_len;
+
+    if ((ret = find_usable_client_addr(ctx, &addr)) < 0)
+    {
+        fprintf(stderr, "failed to find usable address for discover\n");
+        return -1;
+    }
+
+    client->state = OFFERED;
+    client->offered_address.s_addr = addr.s_addr;
+    memcpy(client->ethernet_address, pkt->ch_addr, ETHERNET_LEN);
+    client->identifier = NULL;
+    if ((find_dhcp_option(
+            pkt, OPT_IDENTIFIER, &buf, &buf_len, true)) != OPT_SEARCH_ERROR)
+    {
+        client->identifier = buf;
+        client->id_len = buf_len;
+    }
+    client->lease_start = time(NULL);
+    client->lease_end = client->lease_start + DEFAULT_LEASE_SEC;
+
+    if (insert_client(ctx, client) < 0)
+    {
+        fprintf(stderr, "failed to insert client into client table\n");
+        if (client->identifier != NULL)
+            free(client->identifier);
+        free(client);
+        return -1;
+    }
+
+    return 0;
+}
+
+/* DHCP REQUEST */
+
+void 
+handle_request(context *ctx, dhcp_pkt *pkt)
+{
+    uint8_t *serv_id = NULL;
+    uint16_t serv_id_len;
+    uint8_t *client_id = NULL;
+    uint16_t client_id_len;
+    bool allocd_client_id = true;
+
+    uint8_t serv_res = find_dhcp_option(pkt, OPT_SERVER_IDENTIFIER,
+                                        &serv_id, &serv_id_len, true);
+    uint8_t client_res = find_dhcp_option(pkt, OPT_IDENTIFIER,
+                                          &client_id, &client_id_len, true);
+
+    // No client ID specified, use ethernet address.
+    if (client_res == OPT_SEARCH_ERROR)
+    {
+        client_id = pkt->ch_addr;
+        client_id_len = ETHERNET_LEN;
+        allocd_client_id = false;
+    }
+
+    if (serv_res == OPT_SEARCH_SUCCESS)
+    {
+        // Response to DHCP offer.
+        handle_request_offer_response(ctx, pkt, serv_id, serv_id_len,
+                                      client_id, client_id_len);
+        free(serv_id);
+    }
+    else
+    {
+        // Renew existing lease.
+        handle_request_renew(ctx, pkt, client_id, client_id_len);
+    }
+
+    if (allocd_client_id)
+    {
+        free(client_id);
+    }
+}
+
+static void
+handle_request_offer_response(
+    context *ctx,
+    dhcp_pkt *pkt,
+    uint8_t *serv_id, uint8_t serv_id_len,
+    uint8_t *client_id, uint8_t client_id_len)
+{
+    if(ctx->debug)
+        printf("Got DHCP request offer response\n");
+    const uint8_t id_len = sizeof(ctx->srv_address.s_addr);
+    int8_t client_res;
+    client *client = NULL;
+    dhcp_pkt *response;
+
+    if (serv_id_len != id_len ||
+        memcmp(serv_id, &(ctx->srv_address.s_addr), id_len) != 0)
+    {
+        if (ctx->debug)
+            printf("Got offer response destined for another server (%.*s)\n",
+                   serv_id_len, serv_id);
+        return;
+    }
+
+    client_res = get_client(ctx, client_id, client_id_len, &client);
+    if (client_res < 0)
+    {
+        fprintf(stderr, "Failed to find client entry for request message\n");
+        return;
+    }
+    client->state = COMMITED;
+
+    if ((response = make_ret_pkt(pkt, ntohl(client->offered_address.s_addr),
+                                 ntohl(ctx->srv_address.s_addr))) == NULL)
+    {
+        fprintf(stderr, "Failed to create response to request message\n");
+        return;
+    }
+
+    add_response_options(ctx, pkt, response, client, OPT_MESSAGE_TYPE_ACK);
+
+    send_response(ctx, response);
+}
+
+static void
+handle_request_renew(context *ctx, dhcp_pkt *pkt,
+                     uint8_t *client_id, uint8_t client_id_len)
+{
+    if(ctx->debug)
+        printf("Got DHCP request renew\n");
 }
