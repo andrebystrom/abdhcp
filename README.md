@@ -28,8 +28,8 @@ DHCP scope of 192.168.0.100-192.168.0.200:
 # Features
 - [x] Discover
 - [x] Offer
-- [ ] Request
-- [ ] Ack
+- [X] Request
+- [X] Ack
 - [ ] Nak
 - [ ] Inform
 - [ ] Release
