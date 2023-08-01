@@ -297,14 +297,14 @@ uint8_t add_pkt_option(
 {
     int16_t offset = pkt->opt_write_offset_;
     if (PKT_OPTION_MAX_LEN < offset + 2 + len)
-        return OPT_WRITE_ERROR;
+        return OPT_WR_ERROR;
     memset(pkt->options + offset, option_code, 1);
     offset++;
     memset(pkt->options + offset, len, 1);
     offset++;
     memcpy(pkt->options + offset, val, len);
     pkt->opt_write_offset_ = offset + len;
-    return OPT_WRITE_SUCCESS;
+    return OPT_WR_SUCCESS;
 }
 
 uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
@@ -312,9 +312,9 @@ uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
     uint16_t offset = pkt->opt_write_offset_;
     if (PKT_OPTION_MAX_LEN <= offset)
     {
-        return OPT_WRITE_ERROR;
+        return OPT_WR_ERROR;
     }
     memset(pkt->options + offset, OPT_END, 1);
     pkt->opt_write_offset_++;
-    return OPT_WRITE_SUCCESS;
+    return OPT_WR_SUCCESS;
 }
