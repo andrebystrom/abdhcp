@@ -3,8 +3,8 @@ CFLAGS=-std=gnu11 -Wall -g -Werror
 BUILDDIR=./build
 
 ifdef SAN
-	CFLAGS+= -fsanitize=address
-	LDFLAGS+=-fsanitize=address
+	CFLAGS+= -fsanitize=address,leak,undefined
+	LDFLAGS+=-fsanitize=address,leak,undefined
 endif
 
 $(BUILDDIR)/abdhcp: $(BUILDDIR)/main.o $(BUILDDIR)/ab_dhcp.o $(BUILDDIR)/dhcp_manager.o
