@@ -554,6 +554,15 @@ static void
 handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
                             uint8_t *client_id, uint8_t client_id_len)
 {
+    // TODO we need the clients sockaddr to determine if this is
+    // a unicast   -> renew, respond with unicast
+    // a broadcast -> rebind, respond with broadcast.
+    // For now, we will settle with using broadcast for both.
+    // This is OK per RFC 2131,
+    // "If unicasting is not possible, the message
+    // MAY be sent as an IP broadcast using an IP broadcast address
+    // (preferably 0xffffffff) as the IP destination address and the link-
+    // layer broadcast address as the link-layer destination address."
     if (ctx->debug)
         printf("Got DHCP request renew/rebind\n");
 }
