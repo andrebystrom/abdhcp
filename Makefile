@@ -1,6 +1,14 @@
 CC=gcc
-CFLAGS=-std=gnu11 -Wall -g -Werror
+CFLAGS=-std=gnu11 -Wall -Werror
 BUILDDIR=./build
+
+ifndef RELEASE
+	CFLAGS+= -g
+endif
+
+ifdef RELEASE
+	CFLAGS+= -O3
+endif
 
 ifdef SAN
 	CFLAGS+= -fsanitize=address,leak,undefined
