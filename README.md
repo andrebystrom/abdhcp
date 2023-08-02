@@ -1,6 +1,8 @@
 # abdhcp - DHCP server in C
 Simple and portable LAN Ethernet DHCP server.
 
+![Build release](https://github.com/andrebystrom/abdhcp/actions/workflows/build.yml/badge.svg)
+
 # Building
 Clone the project, cd into it and run 
 >make
