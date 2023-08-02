@@ -40,8 +40,13 @@ handle_request_offer_response(
     uint8_t *client_id, uint8_t client_id_len);
 
 static void
-handle_request_renew(context *ctx, dhcp_pkt *pkt,
-                     uint8_t *client_id, uint8_t client_id_len);
+handle_request_reboot(context *ctx, dhcp_pkt *pkt,
+                      uint8_t *client_id, uint8_t client_id_len,
+                      uint8_t *req_ip, uint8_t req_ip_len);
+
+static void
+handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
+                            uint8_t *client_id, uint8_t client_id_len);
 
 int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr)
@@ -438,11 +443,15 @@ void handle_request(context *ctx, dhcp_pkt *pkt)
     uint8_t *client_id = NULL;
     uint16_t client_id_len;
     bool allocd_client_id = true;
+    uint8_t *req_ip = NULL;
+    uint16_t req_ip_len;
 
     uint8_t serv_res = find_dhcp_option(pkt, OPT_SERVER_IDENTIFIER,
                                         &serv_id, &serv_id_len, true);
     uint8_t client_res = find_dhcp_option(pkt, OPT_IDENTIFIER,
                                           &client_id, &client_id_len, true);
+    uint8_t req_res = find_dhcp_option(pkt, OPT_REQUESTED_IP,
+                                       &req_ip, &req_ip_len, true);
 
     // No client ID specified, use ethernet address.
     if (client_res == OPT_SEARCH_ERROR)
@@ -459,10 +468,18 @@ void handle_request(context *ctx, dhcp_pkt *pkt)
                                       client_id, client_id_len);
         free(serv_id);
     }
+    else if (req_res == OPT_SEARCH_SUCCESS)
+    {
+        // Client wants to verify existing config.
+        handle_request_reboot(ctx, pkt, client_id, client_id_len,
+                              req_ip, req_ip_len);
+
+        free(req_ip);
+    }
     else
     {
-        // Renew existing lease.
-        handle_request_renew(ctx, pkt, client_id, client_id_len);
+        // Either a renew or rebind.
+        handle_request_renew_rebind(ctx, pkt, client_id, client_id_len);
     }
 
     if (allocd_client_id)
@@ -525,9 +542,18 @@ handle_request_offer_response(
 }
 
 static void
-handle_request_renew(context *ctx, dhcp_pkt *pkt,
-                     uint8_t *client_id, uint8_t client_id_len)
+handle_request_reboot(context *ctx, dhcp_pkt *pkt,
+                      uint8_t *client_id, uint8_t client_id_len,
+                      uint8_t *req_ip, uint8_t req_ip_len)
 {
     if (ctx->debug)
-        printf("Got DHCP request renew\n");
+        printf("Got DHCP request reboot\n");
+}
+
+static void
+handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
+                            uint8_t *client_id, uint8_t client_id_len)
+{
+    if (ctx->debug)
+        printf("Got DHCP request renew/rebind\n");
 }

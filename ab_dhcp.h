@@ -46,6 +46,7 @@
 #define OPT_IDENTIFIER           61
 #define OPT_SERVER_IDENTIFIER    54
 #define OPT_LEASE_TIME           51
+#define OPT_REQUESTED_IP         50
 
 typedef struct
 {
