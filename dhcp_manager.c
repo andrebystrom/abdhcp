@@ -563,6 +563,53 @@ handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
     // MAY be sent as an IP broadcast using an IP broadcast address
     // (preferably 0xffffffff) as the IP destination address and the link-
     // layer broadcast address as the link-layer destination address."
+
+    client *client;
+    dhcp_pkt *response;
+    time_t old_start;
+    time_t old_end;
+
     if (ctx->debug)
         printf("Got DHCP request renew/rebind\n");
+
+    if (get_client(ctx, client_id, client_id_len, &client) < 0)
+    {
+        // Client not managed by this server, do nothing.
+        if (ctx->debug)
+            printf("Got renew/rebind from %.*s not managed by this server",
+                   client_id_len, client_id);
+        return;
+    }
+
+    // Extend lease
+    old_start = client->lease_start;
+    old_end = client->lease_end;
+    client->lease_start = time(NULL);
+    client->lease_end = client->lease_start + DEFAULT_LEASE_SEC;
+
+    if ((response = make_ret_pkt(pkt, ntohl(client->offered_address.s_addr),
+                                 ntohl(ctx->srv_address.s_addr))) == NULL)
+    {
+        fprintf(stderr, "Failed to create response to request message\n");
+        goto err_lease;
+    }
+
+    if (add_response_options(ctx, pkt, response,
+                             client, OPT_MESSAGE_TYPE_ACK) < 0)
+    {
+        fprintf(stderr, "Failed to add options to request response\n");
+        goto err_response;
+    }
+
+    if (send_response(ctx, response) < 0)
+    {
+        fprintf(stderr, "Failed to send request response\n");
+        goto err_response;
+    }
+
+err_response:
+    free(response);
+err_lease:
+    client->lease_start = old_start;
+    client->lease_end = old_end;
 }
