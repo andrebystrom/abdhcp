@@ -230,6 +230,12 @@ void run_server(context *ctx)
             continue;
         }
 
+        if (pkt->gi_addr != 0)
+        {
+            fprintf(stderr, "got DHCP packet from another network\n");
+            continue;
+        }
+
         if (ctx->debug)
             print_dhcp_pkt(pkt);
 
@@ -238,20 +244,18 @@ void run_server(context *ctx)
         case PKT_TYPE_DISCOVER:
             handle_discover(ctx, pkt);
             break;
-        case PKT_TYPE_OFFER:
             break;
         case PKT_TYPE_REQUEST:
             handle_request(ctx, pkt);
             break;
         case PKT_TYPE_DECLINE:
-            break;
-        case PKT_TYPE_ACK:
-            break;
-        case PKT_TYPE_NAK:
-            break;
         case PKT_TYPE_RELEASE:
-            break;
         case PKT_TYPE_INFORM:
+        case PKT_TYPE_OFFER:
+        case PKT_TYPE_ACK:
+        case PKT_TYPE_NAK:
+            printf("Got unsupported DHCP message (htype=%u)\n",
+                   get_dhcp_message_type(pkt));
             break;
         default:
             fprintf(stderr, "Got invalid DHCP message type\n");

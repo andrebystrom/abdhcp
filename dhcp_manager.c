@@ -27,6 +27,10 @@ static int8_t
 add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response);
 
 static int8_t
+prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
+                 client *client, uint8_t msg_type);
+
+static int8_t
 send_response(context *ctx, dhcp_pkt *response);
 
 static int8_t
@@ -278,6 +282,28 @@ add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
 }
 
 static int8_t
+prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
+                 client *client, uint8_t msg_type)
+{
+    *response = make_ret_pkt(
+        pkt, ntohl(client->offered_address.s_addr),
+        ntohl(ctx->srv_address.s_addr));
+    if (*response == NULL)
+    {
+        return -1;
+    }
+
+    if (add_response_options(ctx, pkt, *response,
+                             client, msg_type) < 0)
+    {
+        free(*response);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int8_t
 send_response(context *ctx, dhcp_pkt *response)
 {
     struct sockaddr_in broadcast;
@@ -319,6 +345,7 @@ send_response(context *ctx, dhcp_pkt *response)
 void handle_discover(context *ctx, dhcp_pkt *pkt)
 {
     client *client;
+    dhcp_pkt *response;
 
     if (ctx->debug)
         printf("got dhcp discover pkt\n");
@@ -331,34 +358,24 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
     }
 
     // Send response
-    dhcp_pkt *response = make_ret_pkt(
-        pkt, ntohl(client->offered_address.s_addr),
-        ntohl(ctx->srv_address.s_addr));
-    if (response == NULL)
+    if (prepare_response(ctx, pkt, &response, client,
+                         OPT_MESSAGE_TYPE_OFFER) < 0)
     {
-        fprintf(stderr, "failed to create dhcp offer response\n");
-        goto err_client;
-    }
-
-    if (add_response_options(ctx, pkt, response,
-                             client, OPT_MESSAGE_TYPE_OFFER) < 0)
-    {
-        fprintf(stderr, "failed to add dhcp offer response options\n");
-        goto err_response;
+        fprintf(stderr, "failed to prepare DHCP offer response\n");
+        goto cleanup;
     }
 
     if (send_response(ctx, response) < 0)
     {
-        fprintf(stderr, "failed to send dhcp offer response\n");
-        goto err_response;
+        fprintf(stderr, "failed to send DHCP offer response\n");
+        goto cleanup;
     }
 
     free_dhcp_pkt(response);
     return;
 
-err_response:
+cleanup:
     free_dhcp_pkt(response);
-err_client:
     remove_client_by_client(ctx, client, true);
 }
 
@@ -519,18 +536,9 @@ handle_request_offer_response(
     }
     client->state = COMMITED;
 
-    if ((response = make_ret_pkt(pkt, ntohl(client->offered_address.s_addr),
-                                 ntohl(ctx->srv_address.s_addr))) == NULL)
+    if (prepare_response(ctx, pkt, &response, client, OPT_MESSAGE_TYPE_ACK) < 0)
     {
-        fprintf(stderr, "Failed to create response to request message\n");
-        return;
-    }
-
-    if (add_response_options(ctx, pkt, response,
-                             client, OPT_MESSAGE_TYPE_ACK) < 0)
-    {
-        fprintf(stderr, "Failed to add options to request response\n");
-        free(response);
+        fprintf(stderr, "Failed to prepare response to DHCP request message\n");
         return;
     }
 
@@ -546,8 +554,64 @@ handle_request_reboot(context *ctx, dhcp_pkt *pkt,
                       uint8_t *client_id, uint8_t client_id_len,
                       uint8_t *req_ip, uint8_t req_ip_len)
 {
+    client *client;
+    dhcp_pkt *response;
+    uint32_t allocd_addr_raw;
+    uint32_t req_addr_raw;
+    time_t old_start;
+    time_t old_end;
+
     if (ctx->debug)
         printf("Got DHCP request reboot\n");
+
+    if (req_ip_len != sizeof(uint32_t))
+    {
+        fprintf(stderr, "Invalid request IP address in reboot request\n");
+        return;
+    }
+
+    if (get_client(ctx, client_id, client_id_len, &client) < 0)
+    {
+        // Todo send NAK
+        fprintf(stderr, "Got dhcp reboot request for non-allocated client\n");
+        return;
+    }
+
+    memcpy(&req_addr_raw, req_ip, sizeof(uint32_t));
+    req_addr_raw = ntohl(req_addr_raw);
+    allocd_addr_raw = ntohl(client->offered_address.s_addr);
+    if (req_addr_raw != allocd_addr_raw)
+    {
+        // Client has wrong notion of its address.
+        // TODO send NAK
+        printf("Got dhcp reboot request where requested address "
+               "does not match\n");
+        return;
+    }
+
+    // Extend lease and send ACK
+    old_start = client->lease_start;
+    old_end = client->lease_end;
+    client->lease_start = time(NULL);
+    client->lease_end = client->lease_start + DEFAULT_LEASE_SEC;
+
+    if (prepare_response(ctx, pkt, &response, client, OPT_MESSAGE_TYPE_ACK) < 0)
+    {
+        fprintf(stderr, "Failed to prepare response to DHCP request message\n");
+        goto err_lease;
+    }
+
+    if (send_response(ctx, response) < 0)
+    {
+        fprintf(stderr, "Failed to send request response\n");
+        goto err_response;
+    }
+
+err_response:
+    free(response);
+err_lease:
+    client->lease_start = old_start;
+    client->lease_end = old_end;
 }
 
 static void
@@ -587,18 +651,10 @@ handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
     client->lease_start = time(NULL);
     client->lease_end = client->lease_start + DEFAULT_LEASE_SEC;
 
-    if ((response = make_ret_pkt(pkt, ntohl(client->offered_address.s_addr),
-                                 ntohl(ctx->srv_address.s_addr))) == NULL)
+    if (prepare_response(ctx, pkt, &response, client, OPT_MESSAGE_TYPE_ACK) < 0)
     {
-        fprintf(stderr, "Failed to create response to request message\n");
+        fprintf(stderr, "Failed to create response to DHCP request message\n");
         goto err_lease;
-    }
-
-    if (add_response_options(ctx, pkt, response,
-                             client, OPT_MESSAGE_TYPE_ACK) < 0)
-    {
-        fprintf(stderr, "Failed to add options to request response\n");
-        goto err_response;
     }
 
     if (send_response(ctx, response) < 0)
