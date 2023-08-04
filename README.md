@@ -10,6 +10,8 @@ Clone the project, cd into it and run
 The binary is created in the build directory.
 
 # Usage
+First make sure to assign your computer a static IPv4 address and disable any DHCP servers running on your network, eg. on your router.
+
 >abdhcp -n \<start address>:\<end address> -s \<server address> -m \<subnet mask> [-g \<gateway>] [-d \<dns server>]
 
 The flag -v can be used to get more detailed output.
@@ -35,3 +37,4 @@ DHCP scope of 192.168.0.100-192.168.0.200:
 - [ ] Nak
 - [ ] Inform
 - [ ] Release
+- [ ] Decline
