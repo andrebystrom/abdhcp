@@ -215,6 +215,7 @@ void run_server(context *ctx)
     while (1)
     {
         num_read = read_msg_or_die(ctx, buf, BUF_SIZE);
+        printf("\n======DHCP MESSAGE START======\n");
         if ((pkt = deserialize_dhcp_pkt(buf, num_read)) == NULL)
         {
             fprintf(stderr, "failed to deserialize packet\n");
@@ -263,6 +264,8 @@ void run_server(context *ctx)
         }
 
         free_dhcp_pkt(pkt);
+
+        printf("\n======DHCP MESSAGE END======\n");
     }
 }
 
