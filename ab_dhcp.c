@@ -124,13 +124,13 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     pkt->h_len = buf[2];
     pkt->hops = buf[3];
 
-    pkt->x_id = buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
+    pkt->x_id = (uint32_t) buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
     pkt->secs = buf[8] << 8 | buf[9];
     pkt->flags = buf[10] << 8 | buf[11];
-    pkt->ci_addr = buf[12] << 24 | buf[13] << 16 | buf[14] << 8 | buf[15];
-    pkt->yi_addr = buf[16] << 24 | buf[17] << 16 | buf[18] << 8 | buf[19];
-    pkt->si_addr = buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
-    pkt->gi_addr = buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
+    pkt->ci_addr = (uint32_t) buf[12] << 24 | buf[13] << 16 | buf[14] << 8 | buf[15];
+    pkt->yi_addr = (uint32_t) buf[16] << 24 | buf[17] << 16 | buf[18] << 8 | buf[19];
+    pkt->si_addr = (uint32_t) buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
+    pkt->gi_addr = (uint32_t) buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
 
     const int NUM_DESERIALIZED = 28;
 
