@@ -245,7 +245,6 @@ void run_server(context *ctx)
         case PKT_TYPE_DISCOVER:
             handle_discover(ctx, pkt);
             break;
-            break;
         case PKT_TYPE_REQUEST:
             handle_request(ctx, pkt);
             break;
