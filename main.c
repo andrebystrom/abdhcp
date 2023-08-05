@@ -248,8 +248,10 @@ void run_server(context *ctx)
         case PKT_TYPE_REQUEST:
             handle_request(ctx, pkt);
             break;
-        case PKT_TYPE_DECLINE:
         case PKT_TYPE_RELEASE:
+            handle_release(ctx, pkt);
+            break;
+        case PKT_TYPE_DECLINE:
         case PKT_TYPE_INFORM:
         case PKT_TYPE_OFFER:
         case PKT_TYPE_ACK:

@@ -27,12 +27,10 @@ int8_t
 remove_client_by_client(context *ctx, client *client, bool free_it);
 int8_t
 remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it);
-int
-client_cmp(const void *c1, const void *c2);
+int client_cmp(const void *c1, const void *c2);
 
-void
-handle_discover(context *ctx, dhcp_pkt *pkt);
-void 
-handle_request(context *ctx, dhcp_pkt *pkt);
+void handle_discover(context *ctx, dhcp_pkt *pkt);
+void handle_request(context *ctx, dhcp_pkt *pkt);
+void handle_release(context *ctx, dhcp_pkt *pkt);
 
 #endif

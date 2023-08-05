@@ -669,3 +669,32 @@ err_lease:
     client->lease_start = old_start;
     client->lease_end = old_end;
 }
+
+/* DHCP RELEASE */
+
+void handle_release(context *ctx, dhcp_pkt *pkt)
+{
+    uint8_t *client_id;
+    uint16_t client_id_len;
+    bool allocd_client_id = true;
+
+    if (ctx->debug)
+    {
+        printf("Got DHCP release message\n");
+    }
+
+    if (find_dhcp_option(pkt, OPT_IDENTIFIER, &client_id,
+                         &client_id_len, true) == OPT_SEARCH_ERROR)
+    {
+        client_id = pkt->ch_addr;
+        client_id_len = ETHERNET_LEN;
+        allocd_client_id = false;
+    }
+
+    if (remove_client(ctx, client_id, client_id_len, true) < 0)
+        fprintf(stderr, "Failed to find client binding to remove for "
+                        "DHCP release\n");
+
+    if (allocd_client_id)
+        free(client_id);
+}
