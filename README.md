@@ -11,6 +11,7 @@ The binary is created in the build directory.
 
 # Usage
 First make sure to assign your computer a static IPv4 address and disable any DHCP servers running on your network, eg. on your router.
+Note that the program needs superuser privileges since we are using a privileged port for DHCP.
 
 >abdhcp -n \<start address>:\<end address> -s \<server address> -m \<subnet mask> [-g \<gateway>] [-d \<dns server>]
 
