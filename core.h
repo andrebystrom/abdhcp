@@ -47,8 +47,10 @@ typedef struct
     struct in_addr *gateway;
     struct in_addr *dns_server;
 
-    client **clients;
-    int num_clients;
+    // keep track of bound clients;
+    client **clients; // Sorted from smallest to largest address.
+    int num_clients; // Number of bound clients.
+    uint32_t host_offset; // The host offset to start finding addresses from.
 } context;
 
 #endif

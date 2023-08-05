@@ -51,6 +51,7 @@ void parse_args(int argc, char **argv, context *ctx)
     ctx->dns_server = NULL;
     ctx->clients = NULL;
     ctx->num_clients = 0;
+    ctx->host_offset = 0;
 
     while ((opt = getopt(argc, argv, "s:n:m:g:d:hv")) != -1)
     {

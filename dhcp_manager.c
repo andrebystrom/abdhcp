@@ -16,6 +16,9 @@
 #include "core.h"
 #include "dhcp_manager.h"
 
+static bool
+addr_available(context *ctx, uint32_t addr);
+
 static int8_t
 add_response_options(
     context *ctx,
@@ -55,8 +58,18 @@ handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
 int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr)
 {
-    uint32_t base_addr = ntohl(ctx->start_address.s_addr);
+    // network pool info.
     uint32_t mask = ntohl(ctx->mask.s_addr);
+    uint32_t base_addr = ntohl(ctx->start_address.s_addr);
+    uint32_t end_addr = ntohl(ctx->end_address.s_addr);
+    uint32_t num_addrs = end_addr - base_addr;
+    uint32_t max_host_addr = end_addr & ~mask;
+
+    uint32_t candidate_host_addr = ctx->host_offset;
+    for (uint32_t i = 0; i < num_addrs; i++)
+    {
+    }
+
     uint32_t base_addr_host = base_addr & ~mask;
     uint32_t ret_host = base_addr_host;
     uint32_t ret_address;
@@ -81,6 +94,41 @@ find_usable_client_addr(context *ctx, struct in_addr *addr)
 
     addr->s_addr = htonl(ret_address);
     return 0;
+}
+
+static bool
+addr_available(context *ctx, uint32_t addr)
+{
+    uint32_t search_idx = ctx->num_clients / 2;
+    client *client;
+    if (ctx->num_clients == 0)
+        return true;
+    
+    uint32_t min = 0;
+    uint32_t max = ctx->num_clients - 1;
+    // perform binary search
+    while (search_idx >= 0 && search_idx < ctx->num_clients)
+    {
+        client = ctx->clients[search_idx];
+        if (addr == client->offered_address.s_addr)
+        {
+            return false;
+        }
+        else if (addr > client->offered_address.s_addr)
+        {
+            min = search_idx;
+            search_idx = (ctx->num_clients - search_idx) / 2;
+        }
+        else
+        {
+            max = search_idx;
+            search_idx = search_idx / 2;
+        }
+
+        if(min == max)
+            break;
+    }
+    return true;
 }
 
 int8_t
