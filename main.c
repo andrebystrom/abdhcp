@@ -257,6 +257,8 @@ void run_server(context *ctx)
             handle_decline(ctx, pkt);
             break;
         case PKT_TYPE_INFORM:
+            handle_inform(ctx, pkt);
+            break;
         case PKT_TYPE_OFFER:
         case PKT_TYPE_ACK:
         case PKT_TYPE_NAK:

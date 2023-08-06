@@ -98,9 +98,10 @@ dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
     pkt->flags = req->flags;
 
     pkt->x_id = req->x_id;
-    pkt->ci_addr = req->ci_addr;
+    pkt->ci_addr = 0;
     pkt->yi_addr = yi_addr;
     pkt->si_addr = si_addr;
+    pkt->gi_addr = 0;
 
     memcpy(pkt->ch_addr, req->ch_addr, sizeof(pkt->ch_addr));
     memset(pkt->s_name, 0, sizeof(pkt->s_name));
@@ -124,13 +125,13 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     pkt->h_len = buf[2];
     pkt->hops = buf[3];
 
-    pkt->x_id = (uint32_t) buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
+    pkt->x_id = (uint32_t)buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
     pkt->secs = buf[8] << 8 | buf[9];
     pkt->flags = buf[10] << 8 | buf[11];
-    pkt->ci_addr = (uint32_t) buf[12] << 24 | buf[13] << 16 | buf[14] << 8 | buf[15];
-    pkt->yi_addr = (uint32_t) buf[16] << 24 | buf[17] << 16 | buf[18] << 8 | buf[19];
-    pkt->si_addr = (uint32_t) buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
-    pkt->gi_addr = (uint32_t) buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
+    pkt->ci_addr = (uint32_t)buf[12] << 24 | buf[13] << 16 | buf[14] << 8 | buf[15];
+    pkt->yi_addr = (uint32_t)buf[16] << 24 | buf[17] << 16 | buf[18] << 8 | buf[19];
+    pkt->si_addr = (uint32_t)buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
+    pkt->gi_addr = (uint32_t)buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
 
     const int NUM_DESERIALIZED = 28;
 
@@ -143,13 +144,15 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     buf += PKT_FILE_LEN;
 
     memcpy(pkt->options, buf, size - PKT_STATIC_LEN);
+    pkt->opt_write_offset_ = size - PKT_STATIC_LEN;
 
     return pkt;
 }
 
-uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
+uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt, uint32_t *size)
 {
-    uint8_t *buf = malloc(ETHERNET_MTU);
+    *size = pkt->opt_write_offset_ + PKT_STATIC_LEN;
+    uint8_t *buf = malloc(*size);
     uint8_t *res = buf;
 
     *buf++ = pkt->op;
@@ -180,7 +183,7 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt)
     buf += sizeof(pkt->s_name);
     memcpy(buf, pkt->file, sizeof(pkt->file));
     buf += sizeof(pkt->file);
-    memcpy(buf, pkt->options, sizeof(pkt->options));
+    memcpy(buf, pkt->options, pkt->opt_write_offset_);
 
     return res;
 }
@@ -268,6 +271,30 @@ uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
     return num_params;
 }
 
+uint32_t get_max_message_size(dhcp_pkt *pkt)
+{
+    uint16_t idx;
+    uint8_t opt_len;
+    uint8_t expected_len = 2;
+    uint32_t res = OPT_SEARCH_ERROR;
+    uint8_t *opt_val;
+
+    if (find_dhcp_option_index(pkt, OPT_MAX_MESSAGE_SIZE,
+                               &idx, &opt_len) == OPT_SEARCH_ERROR ||
+                               opt_len != expected_len)
+        return OPT_SEARCH_ERROR;
+    if (idx + opt_len >= pkt->pkt_size - PKT_STATIC_LEN)
+    {
+        return OPT_SEARCH_ERROR;
+    }
+
+    opt_val = pkt->options + idx;
+    res = opt_val[0] << 8 | opt_val[1];
+
+    return res;
+    
+}
+
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
@@ -316,5 +343,22 @@ uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
     }
     memset(pkt->options + offset, OPT_END, 1);
     pkt->opt_write_offset_++;
+    return OPT_WR_SUCCESS;
+}
+
+uint8_t overwrite_opt_with_pad(dhcp_pkt *pkt, uint8_t opt)
+{
+    uint16_t idx;
+    uint8_t opt_len;
+    if (find_dhcp_option_index(pkt, opt, &idx, &opt_len) == OPT_SEARCH_ERROR)
+        return OPT_WR_ERROR;
+
+    // We want to overwrite the opt and opt len specifiers as well.
+    if (idx < 2 || idx + opt_len - 1 > pkt->pkt_size - PKT_STATIC_LEN)
+    {
+        return OPT_WR_ERROR;
+    }
+    idx = idx - 2;
+    memset(pkt->options + idx, OPT_PADDING, opt_len + 2);
     return OPT_WR_SUCCESS;
 }

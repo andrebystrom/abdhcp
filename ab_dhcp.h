@@ -47,6 +47,7 @@
 #define OPT_SERVER_IDENTIFIER    54
 #define OPT_LEASE_TIME           51
 #define OPT_REQUESTED_IP         50
+#define OPT_MAX_MESSAGE_SIZE     57
 
 typedef struct
 {
@@ -66,12 +67,13 @@ typedef struct
 dhcp_pkt *make_pkt(bool zero);
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr);
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size);
-uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt);
+uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt, uint32_t *size);
 void free_dhcp_pkt(dhcp_pkt *pkt);
 void print_dhcp_pkt(dhcp_pkt *pkt);
 bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt);
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt);
 uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t len);
+uint32_t get_max_message_size(dhcp_pkt *pkt);
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
@@ -84,5 +86,6 @@ uint8_t add_pkt_option(
     uint8_t len,
     uint8_t *val);
 uint8_t add_pkt_opt_end(dhcp_pkt *pkt);
+uint8_t overwrite_opt_with_pad(dhcp_pkt *pkt, uint8_t opt);
 
 #endif

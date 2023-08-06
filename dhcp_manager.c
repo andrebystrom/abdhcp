@@ -16,8 +16,26 @@
 #include "core.h"
 #include "dhcp_manager.h"
 
+static int8_t
+find_usable_client_addr(context *ctx, struct in_addr *addr);
+
 static bool
 addr_available(context *ctx, uint32_t addr);
+
+static int8_t
+insert_client(context *ctx, client *c);
+
+static int8_t
+remove_client_by_client(context *ctx, client *client, bool free_it);
+
+static int8_t
+remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it);
+
+static int8_t
+get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res);
+
+static int
+client_cmp(const void *c1, const void *c2);
 
 static int8_t
 add_response_options(
@@ -34,7 +52,11 @@ prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
                  client *client, uint8_t msg_type);
 
 static int8_t
-send_response(context *ctx, dhcp_pkt *response);
+send_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response,
+              struct sockaddr_in *addr);
+
+static int8_t
+send_response_broadcast(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response);
 
 static int8_t
 register_client(context *ctx, client **res, dhcp_pkt *pkt);
@@ -55,7 +77,9 @@ static void
 handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
                             uint8_t *client_id, uint8_t client_id_len);
 
-int8_t
+/* Client operations */
+
+static int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr)
 {
     // network pool info.
@@ -128,7 +152,7 @@ addr_available(context *ctx, uint32_t addr)
     return true;
 }
 
-int8_t
+static int8_t
 insert_client(context *ctx, client *c)
 {
     client **tmp = reallocarray(
@@ -148,7 +172,7 @@ insert_client(context *ctx, client *c)
     return 0;
 }
 
-int8_t
+static int8_t
 remove_client_by_client(context *ctx, client *client, bool free_it)
 {
     if (client->identifier != NULL)
@@ -157,7 +181,7 @@ remove_client_by_client(context *ctx, client *client, bool free_it)
     return remove_client(ctx, client->ethernet_address, ETHERNET_LEN, free_it);
 }
 
-int8_t
+static int8_t
 remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
 {
     for (int i = 0; i < ctx->num_clients; i++)
@@ -194,7 +218,7 @@ remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
     return -1;
 }
 
-int8_t
+static int8_t
 get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res)
 {
     for (int i = 0; i < ctx->num_clients; i++)
@@ -222,7 +246,8 @@ get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res)
     return -1;
 }
 
-int client_cmp(const void *c1, const void *c2)
+static int
+client_cmp(const void *c1, const void *c2)
 {
     client **cl1 = (client **)c1;
     client **cl2 = (client **)c2;
@@ -232,7 +257,7 @@ int client_cmp(const void *c1, const void *c2)
     return (int)addr1 - addr2;
 }
 
-/* GENERAL */
+/* GENERAL DHCP */
 
 static int8_t
 add_response_options(
@@ -349,34 +374,80 @@ prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
 }
 
 static int8_t
-send_response(context *ctx, dhcp_pkt *response)
+send_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response,
+              struct sockaddr_in *addr)
+{
+    uint32_t max_response_len;
+    uint32_t response_size;
+    ssize_t ret;
+
+    uint8_t *response_buf = serialize_dhcp_pkt(response, &response_size);
+    if (response_buf == NULL)
+    {
+        fprintf(stderr, "failed to serialize DHCP message\n");
+        return -1;
+    }
+
+    if ((max_response_len = get_max_message_size(pkt)) > 0 &&
+        response_size > max_response_len)
+    {
+        fprintf(stderr, "DHCP response is to large for client\n");
+        free(response_buf);
+        return -1;
+    }
+
+    ret = sendto(ctx->srv_socket,
+                 response_buf, response_size, 0,
+                 (struct sockaddr *)addr, sizeof(*addr));
+    if (ret != response_size)
+    {
+        perror("failed to send DHCP response");
+        free(response_buf);
+        return -1;
+    }
+
+    free(response_buf);
+    return 0;
+}
+
+static int8_t
+send_response_broadcast(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
 {
     struct sockaddr_in broadcast;
     ssize_t ret;
+    uint32_t max_response_len;
+    uint32_t response_len;
 
     memset(&broadcast, 0, sizeof broadcast);
-    const int DHCP_CLIENT_PORT = 68;
     broadcast.sin_family = AF_INET;
     broadcast.sin_port = htons(DHCP_CLIENT_PORT);
     broadcast.sin_addr.s_addr = htonl(INADDR_BROADCAST);
 
-    uint8_t *response_buf = serialize_dhcp_pkt(response);
+    uint8_t *response_buf = serialize_dhcp_pkt(response, &response_len);
     if (response_buf == NULL)
     {
-        fprintf(stderr, "failed to serialize dhcp message\n");
+        fprintf(stderr, "failed to serialize DHCP message\n");
+        return -1;
+    }
+
+    if ((max_response_len = get_max_message_size(pkt)) > 0 &&
+        response_len > max_response_len)
+    {
+        fprintf(stderr, "DHCP response is to large for client\n");
+        free(response_buf);
         return -1;
     }
 
     ret = sendto(
         ctx->srv_socket,
         response_buf,
-        ETHERNET_MTU,
+        response_len,
         0,
         (struct sockaddr *)&broadcast,
         sizeof(broadcast));
-    if (ret != ETHERNET_MTU)
+    if (ret != response_len)
     {
-        perror("failed to send dhcp response");
+        perror("failed to send DHCP response");
         free(response_buf);
         return -1;
     }
@@ -410,7 +481,7 @@ void handle_discover(context *ctx, dhcp_pkt *pkt)
         goto cleanup;
     }
 
-    if (send_response(ctx, response) < 0)
+    if (send_response_broadcast(ctx, pkt, response) < 0)
     {
         fprintf(stderr, "failed to send DHCP offer response\n");
         goto cleanup;
@@ -587,7 +658,7 @@ handle_request_offer_response(
         return;
     }
 
-    if (send_response(ctx, response) < 0)
+    if (send_response_broadcast(ctx, pkt, response) < 0)
     {
         fprintf(stderr, "Failed to send request response\n");
         free(response);
@@ -646,7 +717,7 @@ handle_request_reboot(context *ctx, dhcp_pkt *pkt,
         goto err_lease;
     }
 
-    if (send_response(ctx, response) < 0)
+    if (send_response_broadcast(ctx, pkt, response) < 0)
     {
         fprintf(stderr, "Failed to send request response\n");
         goto err_response;
@@ -702,7 +773,7 @@ handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
         goto err_lease;
     }
 
-    if (send_response(ctx, response) < 0)
+    if (send_response_broadcast(ctx, pkt, response) < 0)
     {
         fprintf(stderr, "Failed to send request response\n");
         goto err_response;
@@ -745,6 +816,7 @@ void handle_release(context *ctx, dhcp_pkt *pkt)
 }
 
 /* DCHP DECLINE */
+
 void handle_decline(context *ctx, dhcp_pkt *pkt)
 {
     if (ctx->debug)
@@ -768,6 +840,62 @@ void handle_decline(context *ctx, dhcp_pkt *pkt)
                          ntohl(ctx->start_address.s_addr);
     ctx->host_offset = (ctx->host_offset + 1) % (num_addrs + 1);
 
-    if(allocd_client_id)
+    if (allocd_client_id)
+        free(client_id);
+}
+
+/* DHCP INFORM */
+
+void handle_inform(context *ctx, dhcp_pkt *pkt)
+{
+    dhcp_pkt *response;
+    client *client;
+
+    uint8_t *client_id;
+    uint16_t client_id_len;
+    bool allocd_client_id = true;
+    struct sockaddr_in addr;
+
+    if (ctx->debug)
+        printf("got DHCP inform message\n");
+
+    if (find_dhcp_option(pkt, OPT_IDENTIFIER, &client_id,
+                         &client_id_len, true) == OPT_SEARCH_ERROR)
+    {
+        allocd_client_id = false;
+        client_id = pkt->ch_addr;
+        client_id_len = ETHERNET_LEN;
+    }
+
+    if (get_client(ctx, client_id, client_id_len, &client) < 0)
+    {
+        fprintf(stderr, "got DHCP inform from non-bound client\n");
+        goto cleanup_client;
+    }
+
+    if (prepare_response(ctx, pkt, &response, client, OPT_MESSAGE_TYPE_ACK) < 0)
+    {
+        fprintf(stderr, "Failed to create response to DHCP request message\n");
+        goto cleanup_client;
+    }
+
+    // Inform must not include lease time and should not have yi_addr set.
+    overwrite_opt_with_pad(response, OPT_LEASE_TIME);
+    response->yi_addr = 0;
+
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_addr.s_addr = htonl(pkt->ci_addr);
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(DHCP_CLIENT_PORT);
+    if (send_response(ctx, pkt, response, &addr) < 0)
+    {
+        fprintf(stderr, "Failed to send inform response\n");
+        goto cleanup_send;
+    }
+
+cleanup_send:
+    free(response);
+cleanup_client:
+    if (allocd_client_id)
         free(client_id);
 }
