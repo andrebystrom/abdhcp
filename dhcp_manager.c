@@ -63,70 +63,67 @@ find_usable_client_addr(context *ctx, struct in_addr *addr)
     uint32_t base_addr = ntohl(ctx->start_address.s_addr);
     uint32_t end_addr = ntohl(ctx->end_address.s_addr);
     uint32_t num_addrs = end_addr - base_addr;
-    uint32_t max_host_addr = end_addr & ~mask;
+    uint32_t min_host_addr = base_addr & ~mask;
 
-    uint32_t candidate_host_addr = ctx->host_offset;
+    bool found_addr = false;
+    uint32_t candidate_host_addr;
+    uint32_t candidate_addr;
     for (uint32_t i = 0; i < num_addrs; i++)
     {
-    }
-
-    uint32_t base_addr_host = base_addr & ~mask;
-    uint32_t ret_host = base_addr_host;
-    uint32_t ret_address;
-
-    for (int i = 0; i < ctx->num_clients; i++)
-    {
-        uint32_t offered_addr = ntohl(ctx->clients[i]->offered_address.s_addr);
-        uint32_t offered_host = offered_addr & ~mask;
-        if (ret_host < offered_host)
+        candidate_host_addr = ctx->host_offset + min_host_addr;
+        candidate_addr = htonl(candidate_host_addr | (base_addr & mask));
+        if (addr_available(ctx, candidate_addr))
+        {
+            found_addr = true;
             break;
-
-        ret_host++;
+        }
+        ctx->host_offset = (ctx->host_offset + 1) % (num_addrs + 1);
     }
 
-    ret_address = ret_host | (base_addr & mask);
-
-    addr->s_addr = htonl(ret_address);
-    if (ret_address > ntohl(ctx->end_address.s_addr))
-    {
+    if (!found_addr)
         return -1;
-    }
 
-    addr->s_addr = htonl(ret_address);
+    addr->s_addr = candidate_addr;
     return 0;
 }
 
 static bool
 addr_available(context *ctx, uint32_t addr)
 {
-    uint32_t search_idx = ctx->num_clients / 2;
+    uint32_t search_idx;
     client *client;
     if (ctx->num_clients == 0)
         return true;
-    
+
     uint32_t min = 0;
     uint32_t max = ctx->num_clients - 1;
     // perform binary search
-    while (search_idx >= 0 && search_idx < ctx->num_clients)
+    while (min <= max)
     {
+        search_idx = min + (max - min) / 2;
         client = ctx->clients[search_idx];
         if (addr == client->offered_address.s_addr)
         {
-            return false;
+            time_t now = time(NULL);
+            if (now < client->lease_end + DEFAULT_LEASE_GRACE)
+            {
+                // Lease not expired.
+                return false;
+            }
+            // Lease expired.
+            remove_client_by_client(ctx, client, true);
+            return true;
         }
         else if (addr > client->offered_address.s_addr)
         {
-            min = search_idx;
-            search_idx = (ctx->num_clients - search_idx) / 2;
+            min = search_idx + 1;
         }
         else
         {
-            max = search_idx;
-            search_idx = search_idx / 2;
+            if (search_idx == 0)
+                break;
+            max = search_idx - 1;
         }
-
-        if(min == max)
-            break;
     }
     return true;
 }
@@ -744,5 +741,33 @@ void handle_release(context *ctx, dhcp_pkt *pkt)
                         "DHCP release\n");
 
     if (allocd_client_id)
+        free(client_id);
+}
+
+/* DCHP DECLINE */
+void handle_decline(context *ctx, dhcp_pkt *pkt)
+{
+    if (ctx->debug)
+        printf("got DHCP decline message\n");
+
+    uint8_t *client_id;
+    uint16_t client_id_len;
+    bool allocd_client_id = true;
+
+    if (find_dhcp_option(pkt, OPT_IDENTIFIER, &client_id,
+                         &client_id_len, true) == OPT_SEARCH_ERROR)
+    {
+        allocd_client_id = false;
+        client_id = pkt->ch_addr;
+        client_id_len = ETHERNET_LEN;
+    }
+
+    remove_client(ctx, client_id, client_id_len, true);
+
+    uint32_t num_addrs = ntohl(ctx->end_address.s_addr) -
+                         ntohl(ctx->start_address.s_addr);
+    ctx->host_offset = (ctx->host_offset + 1) % (num_addrs + 1);
+
+    if(allocd_client_id)
         free(client_id);
 }
