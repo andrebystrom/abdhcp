@@ -2,6 +2,7 @@
 #define DHCP_MANAGER_H
 
 #define DEFAULT_LEASE_SEC 3600
+#define DEFAULT_LEASE_GRACE 300
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,5 +33,6 @@ int client_cmp(const void *c1, const void *c2);
 void handle_discover(context *ctx, dhcp_pkt *pkt);
 void handle_request(context *ctx, dhcp_pkt *pkt);
 void handle_release(context *ctx, dhcp_pkt *pkt);
+void handle_decline(context *ctx, dhcp_pkt *pkt);
 
 #endif

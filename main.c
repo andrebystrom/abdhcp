@@ -51,6 +51,7 @@ void parse_args(int argc, char **argv, context *ctx)
     ctx->dns_server = NULL;
     ctx->clients = NULL;
     ctx->num_clients = 0;
+    ctx->host_offset = 0;
 
     while ((opt = getopt(argc, argv, "s:n:m:g:d:hv")) != -1)
     {
@@ -252,6 +253,8 @@ void run_server(context *ctx)
             handle_release(ctx, pkt);
             break;
         case PKT_TYPE_DECLINE:
+            handle_decline(ctx, pkt);
+            break;
         case PKT_TYPE_INFORM:
         case PKT_TYPE_OFFER:
         case PKT_TYPE_ACK:
