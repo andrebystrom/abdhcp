@@ -235,6 +235,7 @@ void run_server(context *ctx)
         if (pkt->gi_addr != 0)
         {
             fprintf(stderr, "got DHCP packet from another network\n");
+            free_dhcp_pkt(pkt);
             continue;
         }
 
