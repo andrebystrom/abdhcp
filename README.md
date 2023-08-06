@@ -38,4 +38,4 @@ DHCP scope of 192.168.0.100-192.168.0.200:
 - [ ] Nak
 - [ ] Inform
 - [X] Release
-- [ ] Decline
+- [X] Decline
