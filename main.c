@@ -38,13 +38,16 @@ int main(int argc, char **argv)
     return 0;
 }
 
+/// @brief Parses the command line arguments and initializes the context.
+/// @param argc the argument count.
+/// @param argv the argument values.
+/// @param ctx the context.
 void parse_args(int argc, char **argv, context *ctx)
 {
     int opt;
 
     char *address;
     bool has_network = false, has_mask = false, has_server_addr = false;
-    struct in_addr *addr;
 
     ctx->debug = false;
     ctx->gateway = NULL;
@@ -60,16 +63,14 @@ void parse_args(int argc, char **argv, context *ctx)
         case 'n':
             // Mandatory
             // Network option, expected format is start_address:end_address
-            for (int i = 0; i < 2; i++)
-            {
-                address = strtok((i == 0) ? optarg : NULL, ":");
-                if (address == NULL)
-                    print_usage_and_exit(stderr);
-
-                addr = (i == 0) ? &(ctx->start_address) : &(ctx->end_address);
-                if (inet_aton(address, addr) < 1)
-                    print_usage_and_exit(stderr);
-            }
+            if((address = strtok(optarg, ":")) == NULL)
+                print_usage_and_exit(stderr);
+            if(inet_aton(address, &(ctx->start_address)) < 1)
+                print_usage_and_exit(stderr);
+            if((address = strtok(NULL, ":")) == NULL)
+                print_usage_and_exit(stderr);
+            if(inet_aton(address, &(ctx->end_address)) < 1)
+                print_usage_and_exit(stderr);
             has_network = true;
             break;
         case 's':
@@ -121,6 +122,10 @@ void parse_args(int argc, char **argv, context *ctx)
         print_usage_and_exit(stderr);
 }
 
+/// @brief Validates that the network address specified is sequentual and not
+/// network or broadcast addresses.
+/// @param ctx the context.
+/// @return true if valid, false otherwise.
 bool validate_network(context *ctx)
 {
     uint32_t raw_start = ntohl(ctx->start_address.s_addr);
@@ -138,6 +143,8 @@ bool validate_network(context *ctx)
            raw_end < broadcast_address;
 }
 
+/// @brief Prints the usage info and exits.
+/// @param f the file to print to.
 void print_usage_and_exit(FILE *f)
 {
     fprintf(f, "Usage: abdhcp -n <start address>:<end address>");
@@ -146,6 +153,8 @@ void print_usage_and_exit(FILE *f)
     exit(EXIT_FAILURE);
 }
 
+/// @brief Frees dynamic members in the context.
+/// @param ctx the context to free (stack allocated).
 void free_context(context *ctx)
 {
     if (ctx->gateway != NULL)
@@ -154,6 +163,8 @@ void free_context(context *ctx)
         free(ctx->dns_server);
 }
 
+/// @brief Initializes the UDP server socket.
+/// @param ctx the context.
 void create_srv_socket(context *ctx)
 {
     struct addrinfo hints;
@@ -206,6 +217,9 @@ void create_srv_socket(context *ctx)
     freeaddrinfo(info);
 }
 
+/// @brief Runs the server, reading the server sockets, deserializes the
+/// message and passes it to the correct handler.
+/// @param ctx the context.
 void run_server(context *ctx)
 {
     const int BUF_SIZE = 2048;

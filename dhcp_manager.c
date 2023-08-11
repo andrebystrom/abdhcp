@@ -19,9 +19,6 @@
 static int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr);
 
-static bool
-addr_available(context *ctx, uint32_t addr);
-
 static int8_t
 insert_client(context *ctx, client *c);
 
@@ -79,79 +76,58 @@ handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
 
 /* Client operations */
 
+/// @brief Finds a usable client address.
+/// @param ctx the context.
+/// @param addr the return address, only set if the return value is success.
+/// @return -1 on fail, 0 otherwise.
 static int8_t
 find_usable_client_addr(context *ctx, struct in_addr *addr)
 {
     // network pool info.
-    uint32_t mask = ntohl(ctx->mask.s_addr);
     uint32_t base_addr = ntohl(ctx->start_address.s_addr);
     uint32_t end_addr = ntohl(ctx->end_address.s_addr);
     uint32_t num_addrs = end_addr - base_addr;
-    uint32_t min_host_addr = base_addr & ~mask;
 
     bool found_addr = false;
-    uint32_t candidate_host_addr;
     uint32_t candidate_addr;
-    for (uint32_t i = 0; i < num_addrs; i++)
+    client *ret;
+    for (uint32_t i = 0; i <= num_addrs; i++)
     {
-        candidate_host_addr = ctx->host_offset + min_host_addr;
-        candidate_addr = htonl(candidate_host_addr | (base_addr & mask));
-        if (addr_available(ctx, candidate_addr))
+        candidate_addr = htonl(base_addr + ctx->host_offset);
+        client search_client = {.offered_address.s_addr = candidate_addr};
+        client *tmp = &search_client;
+        if (ctx->num_clients == 0 ||
+            (ret = bsearch(&tmp, ctx->clients, ctx->num_clients,
+                           sizeof(client *), client_cmp)) == NULL)
         {
+            // address not in use
             found_addr = true;
             break;
         }
+        // Check if the found client has expired
+        time_t now = time(NULL);
+        if (now > ret->lease_end + DEFAULT_LEASE_GRACE)
+        {
+            remove_client_by_client(ctx, ret, true);
+            found_addr = true;
+            break;
+        }
+
         ctx->host_offset = (ctx->host_offset + 1) % (num_addrs + 1);
     }
 
     if (!found_addr)
         return -1;
 
+    ctx->host_offset = (ctx->host_offset + 1) % (num_addrs + 1);
     addr->s_addr = candidate_addr;
     return 0;
 }
 
-static bool
-addr_available(context *ctx, uint32_t addr)
-{
-    uint32_t search_idx;
-    client *client;
-    if (ctx->num_clients == 0)
-        return true;
-
-    uint32_t min = 0;
-    uint32_t max = ctx->num_clients - 1;
-    // perform binary search
-    while (min <= max)
-    {
-        search_idx = min + (max - min) / 2;
-        client = ctx->clients[search_idx];
-        if (addr == client->offered_address.s_addr)
-        {
-            time_t now = time(NULL);
-            if (now < client->lease_end + DEFAULT_LEASE_GRACE)
-            {
-                // Lease not expired.
-                return false;
-            }
-            // Lease expired.
-            remove_client_by_client(ctx, client, true);
-            return true;
-        }
-        else if (addr > client->offered_address.s_addr)
-        {
-            min = search_idx + 1;
-        }
-        else
-        {
-            if (search_idx == 0)
-                break;
-            max = search_idx - 1;
-        }
-    }
-    return true;
-}
-
+/// @brief Inserts a client.
+/// @param ctx the context.
+/// @param c the client to insert.
+/// @return -1 on fail, 0 on success.
 static int8_t
 insert_client(context *ctx, client *c)
 {
@@ -172,6 +148,11 @@ insert_client(context *ctx, client *c)
     return 0;
 }
 
+/// @brief Removes a client by a client.
+/// @param ctx the context.
+/// @param client the client to remove.
+/// @param free_it true if the client should be freed.
+/// @return -1 on fail, 0 on success.
 static int8_t
 remove_client_by_client(context *ctx, client *client, bool free_it)
 {
@@ -181,6 +162,12 @@ remove_client_by_client(context *ctx, client *client, bool free_it)
     return remove_client(ctx, client->ethernet_address, ETHERNET_LEN, free_it);
 }
 
+/// @brief Removes a client.
+/// @param ctx the context.
+/// @param id the id of the client.
+/// @param len the length of the client id.
+/// @param free_it true if the client should be freed.
+/// @return -1 on fail, 0 on success.
 static int8_t
 remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
 {
@@ -203,14 +190,15 @@ remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
         }
 
         // Remove and return.
-        c->offered_address.s_addr = INADDR_BROADCAST;
-        qsort(ctx->clients, ctx->num_clients, sizeof(client *), client_cmp);
         if (free_it)
         {
             if (c->identifier)
                 free(c->identifier);
             free(c);
         }
+        memmove(ctx->clients + i, ctx->clients + i + 1,
+                ctx->num_clients - i - 1);
+
         ctx->clients[ctx->num_clients - 1] = NULL;
         ctx->num_clients--;
         return 0;
@@ -218,6 +206,12 @@ remove_client(context *ctx, uint8_t *id, uint8_t len, bool free_it)
     return -1;
 }
 
+/// @brief Gets a client.
+/// @param ctx the context.
+/// @param id the id of the client.
+/// @param id_len the length of the id.
+/// @param res result placed here on success.
+/// @return -1 on fail, 0 on success.
 static int8_t
 get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res)
 {
@@ -246,6 +240,10 @@ get_client(context *ctx, uint8_t *id, uint8_t id_len, client **res)
     return -1;
 }
 
+/// @brief Compares clients by addresses in ascending order.
+/// @param c1 client 1.
+/// @param c2 client 2.
+/// @return 0 on equal, < 0 when c1 < c2, > 0 when c1 > c2.
 static int
 client_cmp(const void *c1, const void *c2)
 {
@@ -259,6 +257,13 @@ client_cmp(const void *c1, const void *c2)
 
 /* GENERAL DHCP */
 
+/// @brief add general response options.
+/// @param ctx the context.
+/// @param req the request.
+/// @param response the responset to add to.
+/// @param client the client entry.
+/// @param pkt_type the type of packet.
+/// @return -1 on fail, 0 on success.
 static int8_t
 add_response_options(
     context *ctx,
@@ -302,6 +307,11 @@ add_response_options(
     return 0;
 }
 
+/// @brief Adds the request param options.
+/// @param ctx the context.
+/// @param pkt the request pkt.
+/// @param response the response pkt.
+/// @return -1 on fail, 0 on success.
 static int8_t
 add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
 {
@@ -351,6 +361,13 @@ add_requested_options(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
     return 0;
 }
 
+/// @brief Prepares the response to be ready to be sent to the client.
+/// @param ctx the context.
+/// @param pkt the request pkt.
+/// @param response the response pkt to prepare.
+/// @param client the client.
+/// @param msg_type the message type.
+/// @return -1 on fail, 0 on success.
 static int8_t
 prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
                  client *client, uint8_t msg_type)
@@ -373,6 +390,12 @@ prepare_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt **response,
     return 0;
 }
 
+/// @brief Sends the response to addr.
+/// @param ctx the context.
+/// @param pkt the request pkt.
+/// @param response the response pkt to send.
+/// @param addr the addr to send to.
+/// @return -1 on fail, 0 on success.
 static int8_t
 send_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response,
               struct sockaddr_in *addr)
@@ -410,6 +433,11 @@ send_response(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response,
     return 0;
 }
 
+/// @brief send response as broadcast.
+/// @param ctx the context.
+/// @param pkt the request pkt.
+/// @param response the response pkt.
+/// @return -1 on fail, 0 on success.
 static int8_t
 send_response_broadcast(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
 {
@@ -458,6 +486,9 @@ send_response_broadcast(context *ctx, dhcp_pkt *pkt, dhcp_pkt *response)
 
 /* DHCP DISCOVER */
 
+/// @brief Handles a DHCP discover packet.
+/// @param ctx the context.
+/// @param pkt the discover request packet.
 void handle_discover(context *ctx, dhcp_pkt *pkt)
 {
     client *client;
@@ -495,6 +526,12 @@ cleanup:
     remove_client_by_client(ctx, client, true);
 }
 
+/// @brief Registers a client by finding a lease and adding it to the list of
+/// clients.
+/// @param ctx the context.
+/// @param res the added client.
+/// @param pkt the request.
+/// @return -1 on fail, 0 on success.
 static int8_t
 register_client(context *ctx, client **res, dhcp_pkt *pkt)
 {
@@ -569,6 +606,9 @@ err_client_id:
 
 /* DHCP REQUEST */
 
+/// @brief Handles a DHCP request packet.
+/// @param ctx the context.
+/// @param pkt the request packet.
 void handle_request(context *ctx, dhcp_pkt *pkt)
 {
     uint8_t *serv_id = NULL;
@@ -621,6 +661,13 @@ void handle_request(context *ctx, dhcp_pkt *pkt)
     }
 }
 
+/// @brief Handles a DHCP request thats a response to an offer.
+/// @param ctx the context.
+/// @param pkt the packet.
+/// @param serv_id the server id.
+/// @param serv_id_len the server id len.
+/// @param client_id the client id.
+/// @param client_id_len the client id len.
 static void
 handle_request_offer_response(
     context *ctx,
@@ -665,6 +712,13 @@ handle_request_offer_response(
     }
 }
 
+/// @brief Handles a DHCP request thats a reboot.
+/// @param ctx the context.
+/// @param pkt the request.
+/// @param client_id the client id.
+/// @param client_id_len the cliebt id len.
+/// @param req_ip the requested ip.
+/// @param req_ip_len the requested ip len.
 static void
 handle_request_reboot(context *ctx, dhcp_pkt *pkt,
                       uint8_t *client_id, uint8_t client_id_len,
@@ -730,6 +784,11 @@ err_lease:
     client->lease_end = old_end;
 }
 
+/// @brief Handles a DHCP request thats a rebind.
+/// @param ctx the context.
+/// @param pkt the request.
+/// @param client_id the client id.
+/// @param client_id_len the client id len.
 static void
 handle_request_renew_rebind(context *ctx, dhcp_pkt *pkt,
                             uint8_t *client_id, uint8_t client_id_len)
@@ -788,6 +847,9 @@ err_lease:
 
 /* DHCP RELEASE */
 
+/// @brief Handles a DHCP release message.
+/// @param ctx the context.
+/// @param pkt the release.
 void handle_release(context *ctx, dhcp_pkt *pkt)
 {
     uint8_t *client_id;
@@ -817,6 +879,10 @@ void handle_release(context *ctx, dhcp_pkt *pkt)
 
 /* DCHP DECLINE */
 
+/// @brief Handles a DHCP decline message by removing the client and
+/// incrementing the host offset.
+/// @param ctx the context.
+/// @param pkt the decline message.
 void handle_decline(context *ctx, dhcp_pkt *pkt)
 {
     if (ctx->debug)
@@ -846,6 +912,9 @@ void handle_decline(context *ctx, dhcp_pkt *pkt)
 
 /* DHCP INFORM */
 
+/// @brief Handles a DHCP inform packet.
+/// @param ctx the context.
+/// @param pkt the inform message.
 void handle_inform(context *ctx, dhcp_pkt *pkt)
 {
     dhcp_pkt *response;

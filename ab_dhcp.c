@@ -14,6 +14,12 @@ static int get_option_length(dhcp_pkt *pkt)
     return pkt->pkt_size - PKT_STATIC_LEN;
 }
 
+/// @brief Find the start index for the value of an option.
+/// @param pkt the packet to search.
+/// @param opt the opt to search for.
+/// @param idx the index to set.
+/// @param len the length of the option value.
+/// @return the index on succes, or 0 on failure.
 static uint8_t find_dhcp_option_index(
     dhcp_pkt *pkt,
     uint8_t opt,
@@ -58,6 +64,9 @@ static uint8_t find_dhcp_option_index(
     return OPT_SEARCH_ERROR;
 }
 
+/// @brief Serializes a uint32_t into dest.
+/// @param dest the destination buffer of length at least 4.
+/// @param data the data to serialize.
 static void serialize_uint32(uint8_t *dest, uint32_t data)
 {
     *dest++ = data >> 24 & 0xff;
@@ -66,6 +75,38 @@ static void serialize_uint32(uint8_t *dest, uint32_t data)
     *dest++ = data & 0xff;
 }
 
+/// @brief Serializes a uint16_t into dest.
+/// @param dest the destination buffer of length at least 2.
+/// @param data the data to serialize.
+static void serialize_uint16(uint8_t *dest, uint16_t data)
+{
+    *dest++ = data >> 8 & 0xff;
+    *dest = data & 0xff;
+}
+
+/// @brief Deserializes a uint32_t into host byte order.
+/// @param data the data to deserialize.
+/// @return the deserialized data.
+static uint32_t deserialize_uint32(uint8_t *data)
+{
+    uint32_t res;
+    memcpy(&res, data, sizeof(uint32_t));
+    return ntohl(res);
+}
+
+/// @brief Deserializes a uint16_t into host byte order.
+/// @param data the data to deserialize.
+/// @return the deserialized data.
+static uint16_t deserialize_uint16(uint8_t *data)
+{
+    uint16_t res;
+    memcpy(&res, data, sizeof(uint16_t));
+    return ntohs(res);
+}
+
+/// @brief allocates and initializes a dhcp_pkt.
+/// @param zero set the ch_addr, s_name, file and options to 0.
+/// @return the packet, or NULL on alloc fail.
 dhcp_pkt *make_pkt(bool zero)
 {
     dhcp_pkt *pkt = malloc(sizeof(dhcp_pkt));
@@ -85,6 +126,11 @@ dhcp_pkt *make_pkt(bool zero)
     return pkt;
 }
 
+/// @brief Makes a return packet from a request.
+/// @param req the dhcp request.
+/// @param yi_addr the address for the client.
+/// @param si_addr the server address.
+/// @return 
 dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
 {
     dhcp_pkt *pkt = make_pkt(true);
@@ -110,6 +156,10 @@ dhcp_pkt *make_ret_pkt(dhcp_pkt *req, uint32_t yi_addr, uint32_t si_addr)
     return pkt;
 }
 
+/// @brief Deserializes a dhcp_pkt.
+/// @param buf the buffer to deserialize.
+/// @param size the size of the buffer.
+/// @return 
 dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
 {
     if (size < PKT_STATIC_LEN)
@@ -125,13 +175,13 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     pkt->h_len = buf[2];
     pkt->hops = buf[3];
 
-    pkt->x_id = (uint32_t)buf[4] << 24 | buf[5] << 16 | buf[6] << 8 | buf[7];
-    pkt->secs = buf[8] << 8 | buf[9];
-    pkt->flags = buf[10] << 8 | buf[11];
-    pkt->ci_addr = (uint32_t)buf[12] << 24 | buf[13] << 16 | buf[14] << 8 | buf[15];
-    pkt->yi_addr = (uint32_t)buf[16] << 24 | buf[17] << 16 | buf[18] << 8 | buf[19];
-    pkt->si_addr = (uint32_t)buf[20] << 24 | buf[21] << 16 | buf[22] << 8 | buf[23];
-    pkt->gi_addr = (uint32_t)buf[24] << 24 | buf[25] << 16 | buf[26] << 8 | buf[27];
+    pkt->x_id = deserialize_uint32(buf + 4);
+    pkt->secs = deserialize_uint16(buf + 8);
+    pkt->flags = deserialize_uint16(buf + 10);
+    pkt->ci_addr = deserialize_uint32(buf + 12);
+    pkt->yi_addr = deserialize_uint32(buf + 16);
+    pkt->si_addr = deserialize_uint32(buf + 20);
+    pkt->gi_addr = deserialize_uint32(buf + 24);
 
     const int NUM_DESERIALIZED = 28;
 
@@ -149,10 +199,16 @@ dhcp_pkt *deserialize_dhcp_pkt(uint8_t *buf, ssize_t size)
     return pkt;
 }
 
+/// @brief Serializes a dhcp_pkt.
+/// @param pkt the pkt to serialize.
+/// @param size the size of the returned buffer.
+/// @return the serialized packet, or null on fail.
 uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt, uint32_t *size)
 {
     *size = pkt->opt_write_offset_ + PKT_STATIC_LEN;
     uint8_t *buf = malloc(*size);
+    if(buf == NULL)
+        return NULL;
     uint8_t *res = buf;
 
     *buf++ = pkt->op;
@@ -163,10 +219,10 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt, uint32_t *size)
     serialize_uint32(buf, pkt->x_id);
     buf += 4;
 
-    *buf++ = pkt->secs >> 8;
-    *buf++ = pkt->secs & 0xff;
-    *buf++ = pkt->flags >> 8;
-    *buf++ = pkt->flags & 0xff;
+    serialize_uint16(buf, pkt->secs);
+    buf += 2;
+    serialize_uint16(buf, pkt->secs);
+    buf += 2;
 
     serialize_uint32(buf, pkt->ci_addr);
     buf += 4;
@@ -188,11 +244,15 @@ uint8_t *serialize_dhcp_pkt(dhcp_pkt *pkt, uint32_t *size)
     return res;
 }
 
+/// @brief Frees a dhcp_pkt.
+/// @param pkt the pkt to free.
 void free_dhcp_pkt(dhcp_pkt *pkt)
 {
     free(pkt);
 }
 
+/// @brief Prints a dhcp_pkt.
+/// @param pkt the pkt to print.
 void print_dhcp_pkt(dhcp_pkt *pkt)
 {
     struct in_addr ip_addr;
@@ -231,11 +291,17 @@ void print_dhcp_pkt(dhcp_pkt *pkt)
            (pkt->file[0] != '\0') ? (char *)pkt->file : "none");
 }
 
+/// @brief Checks if a dhcp_pkt is using ethernet hardware type.
+/// @param pkt the pkt to check.
+/// @return true if ethernet htype, false otherwise.
 bool is_ethernet_dhcp_pkt(dhcp_pkt *pkt)
 {
     return pkt->h_type == HTYPE_ETHERNET;
 }
 
+/// @brief Gets the dhcp message type.
+/// @param pkt the pkt to check.
+/// @return the pkt type, or PKT_TYPE_INVALID if non-valid value is given.
 uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
 {
     uint8_t buf, ret;
@@ -249,6 +315,11 @@ uint8_t get_dhcp_message_type(dhcp_pkt *pkt)
     return *buf_p;
 }
 
+/// @brief Gets the requested parameters from the packet and stores them in buf.
+/// @param pkt the packet to check.
+/// @param buf the buffer to store results into.
+/// @param buf_len the length of the buffer.
+/// @return the number of requested params added to buf.
 uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
 {
     uint16_t index, res;
@@ -271,6 +342,9 @@ uint8_t get_dhcp_requested_params(dhcp_pkt *pkt, uint8_t *buf, uint16_t buf_len)
     return num_params;
 }
 
+/// @brief Get the max message size of the dhcp_pkt.
+/// @param pkt the pkt to check.
+/// @return the max message size, or 0 on fail.
 uint32_t get_max_message_size(dhcp_pkt *pkt)
 {
     uint16_t idx;
@@ -281,7 +355,7 @@ uint32_t get_max_message_size(dhcp_pkt *pkt)
 
     if (find_dhcp_option_index(pkt, OPT_MAX_MESSAGE_SIZE,
                                &idx, &opt_len) == OPT_SEARCH_ERROR ||
-                               opt_len != expected_len)
+        opt_len != expected_len)
         return OPT_SEARCH_ERROR;
     if (idx + opt_len >= pkt->pkt_size - PKT_STATIC_LEN)
     {
@@ -289,12 +363,18 @@ uint32_t get_max_message_size(dhcp_pkt *pkt)
     }
 
     opt_val = pkt->options + idx;
-    res = opt_val[0] << 8 | opt_val[1];
+    res = deserialize_uint16(opt_val);
 
     return res;
-    
 }
 
+/// @brief Finds a dhcp option and stores its value in buf.
+/// @param pkt the pkt to check.
+/// @param option_code the option to search for.
+/// @param buf the buf to place the option value in.
+/// @param size the size of the option (set by function.)
+/// @param allocate true if the buffer should be allocated by the function.
+/// @return 
 uint8_t find_dhcp_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
@@ -316,6 +396,12 @@ uint8_t find_dhcp_option(
     return OPT_SEARCH_SUCCESS;
 }
 
+/// @brief Adds an option to a dhcp_pkt.
+/// @param pkt the pkt to add to.
+/// @param option_code the option code.
+/// @param len the option length.
+/// @param val the option value.
+/// @return 0 on fail, 1 on success.
 uint8_t add_pkt_option(
     dhcp_pkt *pkt,
     uint8_t option_code,
@@ -334,6 +420,9 @@ uint8_t add_pkt_option(
     return OPT_WR_SUCCESS;
 }
 
+/// @brief Adds the end option to a dhcp_pkt.
+/// @param pkt the pkt to add to.
+/// @return 0 on fail, 1 on success.
 uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
 {
     uint16_t offset = pkt->opt_write_offset_;
@@ -346,6 +435,10 @@ uint8_t add_pkt_opt_end(dhcp_pkt *pkt)
     return OPT_WR_SUCCESS;
 }
 
+/// @brief Overwrites a dhcp option with padding.
+/// @param pkt the pkt to write to.
+/// @param opt the opt to overwrite.
+/// @return 0 on fail, 1 on success.
 uint8_t overwrite_opt_with_pad(dhcp_pkt *pkt, uint8_t opt)
 {
     uint16_t idx;
