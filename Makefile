@@ -15,15 +15,15 @@ ifdef SAN
 	LDFLAGS+=-fsanitize=address,leak,undefined
 endif
 
-$(BUILDDIR)/abdhcp: $(BUILDDIR)/main.o $(BUILDDIR)/ab_dhcp.o $(BUILDDIR)/dhcp_manager.o
+$(BUILDDIR)/abdhcp: $(BUILDDIR)/main.o $(BUILDDIR)/dhcp_pkt.o $(BUILDDIR)/dhcp_manager.o
 	mkdir -p $(BUILDDIR)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(BUILDDIR)/main.o: main.c core.h ab_dhcp.h dhcp_manager.h
+$(BUILDDIR)/main.o: main.c core.h dhcp_pkt.h dhcp_manager.h
 	mkdir -p $(BUILDDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BUILDDIR)/ab_dhcp.o: ab_dhcp.c ab_dhcp.h
+$(BUILDDIR)/dhcp_pkt.o: dhcp_pkt.c dhcp_pkt.h
 	mkdir -p $(BUILDDIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 

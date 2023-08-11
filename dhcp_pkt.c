@@ -1,3 +1,7 @@
+/*
+* Summary: dhcp_pkt serialization/deserialization and general utility functions 
+* for interacting with the dhcp_pkt.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -5,7 +9,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
-#include "ab_dhcp.h"
+#include "dhcp_pkt.h"
 
 static const uint8_t MAGIC_COOKIE[] = {99, 130, 83, 99};
 

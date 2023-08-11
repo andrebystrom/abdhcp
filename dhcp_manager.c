@@ -1,3 +1,6 @@
+/*
+* Summary: Handles and responds to DHCP messages, allocates addresses etc.
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>

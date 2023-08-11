@@ -15,7 +15,7 @@
 // sys includes.
 #include <unistd.h>
 
-#include "ab_dhcp.h"
+#include "dhcp_pkt.h"
 
 typedef enum
 {
